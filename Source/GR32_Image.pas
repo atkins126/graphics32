@@ -123,7 +123,6 @@ type
     procedure WMPaint(var Message: TMessage); message WM_PAINT;
     procedure CMMouseEnter(var Message: TMessage); message CM_MOUSEENTER;
     procedure CMMouseLeave(var Message: TMessage); message CM_MOUSELEAVE;
-    procedure CMInvalidate(var Message: TMessage); message CM_INVALIDATE;
 {$ENDIF}
     procedure DirectAreaUpdateHandler(Sender: TObject; const Area: TRect; const Info: Cardinal);
   protected
@@ -299,6 +298,7 @@ type
     procedure Changed; virtual;
     procedure Update(const Rect: TRect); reintroduce; overload; virtual;
     function  ControlToBitmap(const APoint: TPoint): TPoint;  overload;
+    function  ControlToBitmap(const ARect: TRect): TRect;  overload;
     function  ControlToBitmap(const APoint: TFloatPoint): TFloatPoint; overload;
     procedure EndUpdate; virtual;
     procedure ExecBitmapFrame(Dest: TBitmap32; StageNum: Integer); virtual;   // PST_BITMAP_FRAME
@@ -566,7 +566,7 @@ type
 implementation
 
 uses
-  Math, TypInfo, GR32_MicroTiles, GR32_Backends, GR32_XPThemes;
+  Math, TypInfo, GR32_MicroTiles, GR32_Backends, GR32_XPThemes, GR32_LowLevel;
 
 type
   TLayerAccess = class(TCustomLayer);
@@ -652,19 +652,6 @@ end;
 
 
 { TCustomPaintBox32 }
-
-{$IFNDEF FPC}
-procedure TCustomPaintBox32.CMInvalidate(var Message: TMessage);
-begin
-  if CustomRepaint and HandleAllocated then
-    // we might have invalid rects, so just go ahead without invalidating
-    // the whole client area...
-    PostMessage(Handle, WM_PAINT, 0, 0)
-  else
-    // no invalid rects, so just invalidate the whole client area...
-    inherited;
-end;
-{$ENDIF}
 
 procedure TCustomPaintBox32.AssignTo(Dest: TPersistent);
 begin
@@ -1157,19 +1144,70 @@ end;
 procedure TCustomImage32.BitmapAreaChangeHandler(Sender: TObject;
   const Area: TRect; const Info: Cardinal);
 var
+  NewInfo: Cardinal;
   T, R: TRect;
   Width, Tx, Ty, I, J: Integer;
+  OffsetX, OffsetY: Integer;
+  WidthX, WidthY: Integer;
 begin
   if Sender = FBitmap then
   begin
     T := Area;
-    Width := Trunc(FBitmap.Resampler.Width) + 1;
-    InflateArea(T, Width, Width);
+
+    UpdateCache; // Ensure CachedScaleXY is up to date
+    NewInfo := Info;
+    if (NewInfo and AREAINFO_LINE <> 0) then
+    begin
+      if (T.Left = T.Right) and (T.Top = T.Bottom) then
+        Exit; // Zero length line
+
+      // Unpack line width from Info param
+      Width := integer(NewInfo and (not AREAINFO_MASK));
+
+      // Add line and resampler width and scale value to viewport
+      Width := Ceil((Width + FBitmap.Resampler.Width) * CachedScaleX);
+
+      // Pack width into Info param again
+      NewInfo := AREAINFO_LINE or Width;
+    end else
+    if (T.Left = T.Right) or (T.Top = T.Bottom) then
+      Exit; // Empty rect
+
+    // Make sure rect is positive (i.e. dX >= 0)
+    if (T.Left > T.Right) then
+    begin
+      Swap(T.Left, T.Right);
+      Swap(T.Top, T.Bottom);
+    end;
+
+    // Translate the coordinates from bitmap to viewport
     T.TopLeft := BitmapToControl(T.TopLeft);
     T.BottomRight := BitmapToControl(T.BottomRight);
 
+    if (NewInfo and AREAINFO_LINE <> 0) then
+    begin
+      // Line coordinates specify the center of the pixel.
+      // For example the rect (0, 0, 0, 1) is a one pixel long line while (0, 0, 0, 0) is empty.
+      OffsetX := Round(CachedScaleX / 2);
+      OffsetY := Round(CachedScaleY / 2);
+      T.Offset(OffsetX, OffsetY);
+    end else
+    begin
+      // Rect coordinates specify the pixel corners.
+      // It is assumed that (Top, Left) specify the top/left corner of the top/left pixel and
+      // that (Right, Bottom) specify the bottom/right corner of the bottom/right pixel.
+      // For example the rect (0, 0, 1, 1) covers just one pixel while (0, 0, 0, 1) is empty.
+      Dec(T.Right);
+      Dec(T.Bottom);
+
+      WidthX := Ceil(FBitmap.Resampler.Width * CachedScaleX);
+      WidthY := Ceil(FBitmap.Resampler.Width * CachedScaleY);
+
+      InflateArea(T, WidthX, WidthY);
+    end;
+
     if FBitmapAlign <> baTile then
-      FRepaintOptimizer.AreaUpdateHandler(Self, T, AREAINFO_RECT)
+      FRepaintOptimizer.AreaUpdateHandler(Self, T, NewInfo)
     else
     begin
       with CachedBitmapRect do
@@ -1181,7 +1219,7 @@ begin
           begin
             R := T;
             OffsetRect(R, Right * I, Bottom * J);
-            FRepaintOptimizer.AreaUpdateHandler(Self, R, AREAINFO_RECT);
+            FRepaintOptimizer.AreaUpdateHandler(Self, R, NewInfo);
           end;
       end;
     end;
@@ -1256,6 +1294,35 @@ begin
   begin
     Invalidate;
     if Assigned(FOnChange) then FOnChange(Self);
+  end;
+end;
+
+function TCustomImage32.ControlToBitmap(const ARect: TRect): TRect;
+begin
+  // Top/Left rounded down, Bottom/Right rounded up
+  // It is assumed that ARect.Top<=ARect.Bottom and ARect.Left<=ARect.Right
+  UpdateCache;
+  with ARect do
+  begin
+    if (CachedRecScaleX = 0) then
+    begin
+      Result.Left := High(Result.Left);
+      Result.Right := High(Result.Right);
+    end else
+    begin
+      Result.Left := Floor((Left - CachedShiftX) * CachedRecScaleX);
+      Result.Right := Ceil((Right - CachedShiftX) * CachedRecScaleX);
+    end;
+
+    if (CachedRecScaleY = 0) then
+    begin
+      Result.Top := High(Result.Top);
+      Result.Bottom := High(Result.Bottom);
+    end else
+    begin
+      Result.Top := Floor((Top - CachedShiftY) * CachedRecScaleY);
+      Result.Bottom := Ceil((Bottom - CachedShiftY) * CachedRecScaleY);
+    end;
   end;
 end;
 
@@ -2025,25 +2092,38 @@ end;
 procedure TCustomImgView32.AlignAll;
 var
   ScrollbarVisible: Boolean;
+  ViewPort: TRect;
+  NeedResize: boolean;
 begin
-  if (Width > 0) and (Height > 0) then
-  with GetViewportRect do
+  if (Width <= 0) or (Height <= 0) then
+    Exit;
+
+  NeedResize := False;
+  ViewPort := GetViewportRect;
+  ScrollbarVisible := GetScrollBarsVisible;
+
+  if (HScroll <> nil) then
   begin
-    ScrollbarVisible := GetScrollBarsVisible;
+    NeedResize := (HScroll.Visible <> ScrollbarVisible);
 
-    if Assigned(HScroll) then
-    begin
-      HScroll.BoundsRect := Rect(Left, Bottom, Right, Self.Height);
-      HScroll.Visible := ScrollbarVisible;
-      HScroll.Repaint;
-    end;
+    HScroll.BoundsRect := Rect(ViewPort.Left, ViewPort.Bottom, ViewPort.Right, Self.Height);
+    HScroll.Visible := ScrollbarVisible;
+  end;
 
-    if Assigned(VScroll) then
-    begin
-      VScroll.BoundsRect := Rect(Right, Top, Self.Width, Bottom);
-      VScroll.Visible := ScrollbarVisible;
-      VScroll.Repaint;
-    end;
+  if (VScroll <> nil) then
+  begin
+    NeedResize := NeedResize or (VScroll.Visible <> ScrollbarVisible);
+
+    VScroll.BoundsRect := Rect(ViewPort.Right, ViewPort.Top, Self.Width, ViewPort.Bottom);
+    VScroll.Visible := ScrollbarVisible;
+  end;
+
+  if (NeedResize) then
+  begin
+    // Scrollbars has been shown or hidden. Buffer must resize to align with new viewport.
+    // This will automatically lead to the viewport being redrawn.
+    ResizeBuffer;
+    FBufferValid := False
   end;
 end;
 
