@@ -272,11 +272,11 @@ procedure ModifyAlpha(var Color32: TColor32; NewAlpha: Byte); {$IFDEF USEINLININ
 procedure ScaleAlpha(var Color32: TColor32; Scale: Single); {$IFDEF USEINLINING} inline; {$ENDIF}
 
 // Color space conversion
-function HSLtoRGB(H, S, L: Single): TColor32; overload;
+function HSLtoRGB(H, S, L: Single; A: Integer = 255): TColor32; overload;
+function HSLtoRGB(H, S, L: Integer; A: Integer = 255): TColor32; overload;
 procedure RGBtoHSL(RGB: TColor32; out H, S, L : Single); overload;
-function HSLtoRGB(H, S, L: Integer; A: Integer = $ff): TColor32; overload;
 procedure RGBtoHSL(RGB: TColor32; out H, S, L: Byte); overload;
-function HSVtoRGB(H, S, V: Single): TColor32;
+function HSVtoRGB(H, S, V: Single; A: Integer = 255): TColor32;
 procedure RGBToHSV(Color: TColor32; out H, S, V: Single);
 
 {$IFNDEF PLATFORM_INDEPENDENT}
@@ -714,7 +714,9 @@ type
     procedure SetPenPos(const Value: TPoint);
     function GetPenPosF: TFixedPoint;
     procedure SetPenPosF(const Value: TFixedPoint);
+{$IFDEF RGBA_FORMAT}
     procedure SwapRB;
+{$ENDIF}
   protected
     WrapProcHorz: TWrapProcEx;
     WrapProcVert: TWrapProcEx;
@@ -981,17 +983,17 @@ type
 {$IFDEF BCB}
     procedure DrawTo(hDst: Cardinal; DstX, DstY: Integer); overload;
     procedure DrawTo(hDst: Cardinal; const DstRect, SrcRect: TRect); overload;
-    procedure TileTo(hDst: Cardinal; const DstRect, SrcRect: TRect); overload;
+    procedure TileTo(hDst: Cardinal; const DstRect, SrcRect: TRect; MaxTileSize: integer = 1024); overload;
 {$ELSE}
     procedure DrawTo(hDst: HDC; DstX: Integer = 0; DstY: Integer = 0); overload;
     procedure DrawTo(hDst: HDC; const DstRect, SrcRect: TRect); overload;
-    procedure TileTo(hDst: HDC; const DstRect, SrcRect: TRect); overload;
+    procedure TileTo(hDst: HDC; const DstRect, SrcRect: TRect; MaxTileSize: integer = 1024); overload;
 {$ENDIF}
 
 {$IFDEF COMPILER2009_UP}
     procedure DrawTo(Dst: TControlCanvas; DstX: Integer = 0; DstY: Integer = 0); overload;
     procedure DrawTo(Dst: TControlCanvas; const DstRect, SrcRect: TRect); overload;
-    procedure TileTo(Dst: TControlCanvas; const DstRect, SrcRect: TRect); overload;
+    procedure TileTo(Dst: TControlCanvas; const DstRect, SrcRect: TRect; MaxTileSize: integer = 1024); overload;
 {$ENDIF}
 
     procedure UpdateFont;
@@ -1313,11 +1315,14 @@ begin
 {$IFDEF WIN_COLOR_FIX}
   Result := $FF000000;
   I := (WinColor and $00FF0000) shr 16;
-  if I <> 0 then Result := Result or TColor32(Integer(I) - 1);
+  if I <> 0 then
+    Result := Result or TColor32(Integer(I) - 1);
   I := WinColor and $0000FF00;
-  if I <> 0 then Result := Result or TColor32(Integer(I) - $00000100);
+  if I <> 0 then
+    Result := Result or TColor32(Integer(I) - $00000100);
   I := WinColor and $000000FF;
-  if I <> 0 then Result := Result or TColor32(Integer(I) - 1) shl 16;
+  if I <> 0 then
+    Result := Result or TColor32(Integer(I) - 1) shl 16;
 {$ELSE}
 {$IFDEF USENATIVECODE}
   Result := $FF shl 24 + (WinColor and $FF0000) shr 16 + (WinColor and $FF00) +
@@ -1434,7 +1439,7 @@ end;
 
 function Intensity(Color32: TColor32): Integer;
 begin
-// (R * 61 + G * 174 + B * 21) / 256
+  // (R * 61 + G * 174 + B * 21) / 256
   Result := (
     (Color32 and $00FF0000) shr 16 * 61 +
     (Color32 and $0000FF00) shr 8 * 174 +
@@ -1454,7 +1459,8 @@ function SetAlpha(Color32: TColor32; NewAlpha: Integer): TColor32;
 begin
   if NewAlpha < 0 then
     NewAlpha := 0
-  else if NewAlpha > $FF then
+  else
+  if NewAlpha > $FF then
     NewAlpha := $FF;
   Result := (Color32 and $00FFFFFF) or (TColor32(NewAlpha) shl 24);
 end;
@@ -1471,7 +1477,7 @@ end;
 
 { Color space conversions }
 
-function HSLtoRGB(H, S, L: Single): TColor32;
+function HSLtoRGB(H, S, L: Single; A: Integer): TColor32;
 const
   OneOverThree = 1 / 3;
 var
@@ -1484,18 +1490,21 @@ var
     Hue := Hue - Floor(Hue);
     if 6 * Hue < 1 then
       V := M1 + (M2 - M1) * Hue * 6
-    else if 2 * Hue < 1 then
+    else
+    if 2 * Hue < 1 then
       V := M2
-    else if 3 * Hue < 2 then
+    else
+    if 3 * Hue < 2 then
       V := M1 + (M2 - M1) * (2 * OneOverThree - Hue) * 6
-    else V := M1;
+    else
+      V := M1;
     Result := Round($FF * V);
   end;
 
 begin
   if S = 0 then
   begin
-    Result := Gray32(Round($FF * L));
+    Result := Gray32(Round($FF * L), A);
     Exit;
   end;
 
@@ -1507,20 +1516,21 @@ begin
   Result := Color32(
     HueToColor(H + OneOverThree),
     HueToColor(H),
-    HueToColor(H - OneOverThree));
+    HueToColor(H - OneOverThree),
+    A);
 end;
 
 procedure RGBtoHSL(RGB: TColor32; out H, S, L : Single);
 const
   // reciprocal mul. opt.
   R6 = 1 / 6;
-
 var
   R, G, B, D, Cmax, Cmin: Single;
 begin
   R := RedComponent(RGB) * COne255th;
   G := GreenComponent(RGB) * COne255th;
   B := BlueComponent(RGB) * COne255th;
+
   Cmax := Max(R, Max(G, B));
   Cmin := Min(R, Min(G, B));
   L := (Cmax + Cmin) * 0.5;
@@ -1529,8 +1539,7 @@ begin
   begin
     H := 0;
     S := 0
-  end
-  else
+  end else
   begin
     D := Cmax - Cmin;
     if L < 0.5 then
@@ -1541,13 +1550,15 @@ begin
     if R = Cmax then
       H := (G - B) / D
     else
-      if G = Cmax then
-        H := 2 + (B - R) / D
-      else
-        H := 4 + (R - G) / D;
+    if G = Cmax then
+      H := 2 + (B - R) / D
+    else
+      H := 4 + (R - G) / D;
 
     H := H * R6;
-    if H < 0 then H := H + 1
+
+    if H < 0 then
+      H := H + 1
   end;
 end;
 
@@ -1560,7 +1571,7 @@ begin
   else
     V := L + S - Integer(Div255(L * S));
   if V <= 0 then
-    Result := $FF000000
+    Result := Gray32(L, A)
   else
   begin
     M := L * 2 - V;
@@ -1597,8 +1608,7 @@ begin
   begin
     H := 0;
     S := 0
-  end
-  else
+  end else
   begin
     D := (Cmax - Cmin) * $FF;
     if L <= $7F then
@@ -1609,59 +1619,57 @@ begin
     D := D * 6;
     if R = Cmax then
       HL := (G - B) * $FF * $FF div D
-    else if G = Cmax then
+    else
+    if G = Cmax then
       HL := $FF * 2 div 6 + (B - R) * $FF * $FF div D
     else
       HL := $FF * 4 div 6 + (R - G) * $FF * $FF div D;
 
-    if HL < 0 then HL := HL + $FF * 2;
+    if HL < 0 then
+      HL := HL + $FF * 2;
+
     H := HL;
   end;
 end;
 
-function HSVtoRGB(H, S, V: Single): TColor32;
+function HSVtoRGB(H, S, V: Single; A: Integer): TColor32;
 var
-  Tmp: TFloat;
+  Fraction: Single;
   Sel, Q, P: Integer;
 begin
   V := 255 * V;
+
   if S = 0 then
   begin
-    Result := Gray32(Trunc(V));
+    Result := Gray32(Trunc(V), A);
     Exit;
-  end;  
+  end;
 
-  H := H - Floor(H);
-  Tmp := 6 * H - Floor(6 * H);
+  H := (H - Floor(H)) * 6; // 0 <= H < 6
+  Fraction := H - Floor(H);
 
-  Sel := Trunc(6 * H);
+  Sel := Trunc(H);
   if (Sel mod 2) = 0 then
-    Tmp := 1 - Tmp;
+    Fraction := 1 - Fraction;
 
-  Q := Trunc(V * (1 - S));
-  P := Trunc(V * (1 - S * Tmp));
+  P := Round(V * (1 - S));
+  Q := Round(V * (1 - S * Fraction));
 
   case Sel of
-    0:
-      Result := Color32(Trunc(V), P, Q);
-    1:
-      Result := Color32(P, Trunc(V), Q);
-    2:
-      Result := Color32(Q, Trunc(V), P);
-    3:
-      Result := Color32(Q, P, Trunc(V));
-    4:
-      Result := Color32(P, Q, Trunc(V));
-    5:
-      Result := Color32(Trunc(V), Q, P);
+    0: Result := Color32(Trunc(V), Q, P, A);
+    1: Result := Color32(Q, Trunc(V), P, A);
+    2: Result := Color32(P, Trunc(V), Q, A);
+    3: Result := Color32(P, Q, Trunc(V), A);
+    4: Result := Color32(Q, P, Trunc(V), A);
+    5: Result := Color32(Trunc(V), P, Q, A);
   else
-    Result := Gray32(0);
+    Result := Gray32(0, A);
   end;
 end;
 
 procedure RGBToHSV(Color: TColor32; out H, S, V: Single);
 var
-  Delta, Min, Max: Single;
+  Delta, RGBMin, RGBMax: integer;
   R, G, B: Integer;
 const
   COneSixth = 1 / 6;
@@ -1670,25 +1678,27 @@ begin
   G := GreenComponent(Color);
   B := BlueComponent(Color);
 
-  Min := MinIntValue([R, G, B]);
-  Max := MaxIntValue([R, G, B]);
-  V := Max / 255;
+  RGBMin := Min(R, Min(G, B));
+  RGBMax := Max(R, Max(G, B));
+  V := RGBMax * COne255th;
 
-  Delta := Max - Min;
-  if Max = 0 then
+  Delta := RGBMax - RGBMin;
+  if RGBMax = 0 then
     S := 0
   else
-    S := Delta / Max;
+    S := Delta / RGBMax;
 
   if S = 0.0 then
     H := 0
   else
   begin
-    if R = Max then
+    if R = RGBMax then
       H := COneSixth * (G - B) / Delta
-    else if G = Max then
+    else
+    if G = RGBMax then
       H := COneSixth * (2 + (B - R) / Delta)
-    else if B = Max then
+    else
+    if B = RGBMax then
       H := COneSixth * (4 + (R - G) / Delta);
 
     if H < 0.0 then
@@ -2676,16 +2686,29 @@ procedure TCustomBitmap32.Assign(Source: TPersistent);
     Canvas: TCanvas;
     DeviceContextSupport: IDeviceContextSupport;
     CanvasSupport: ICanvasSupport;
+    InteroperabilitySupport: IInteroperabilitySupport;
   begin
     if not Assigned(SrcGraphic) then
       Exit;
-    RequireBackendSupport(TargetBitmap, [IDeviceContextSupport, ICanvasSupport], romOr, True, SavedBackend);
+    RequireBackendSupport(TargetBitmap, [IDeviceContextSupport, ICanvasSupport,
+      IInteroperabilitySupport], romOr, True, SavedBackend);
     try
       TargetBitmap.SetSize(SrcGraphic.Width, SrcGraphic.Height);
       if TargetBitmap.Empty then Exit;
 
       TargetBitmap.Clear(FillColor);
 
+      if Supports(TargetBitmap.Backend, IInteroperabilitySupport, InteroperabilitySupport) then
+      begin
+        InteroperabilitySupport.CopyFrom(SrcGraphic);
+        InteroperabilitySupport := nil;
+      end else
+      if Supports(TargetBitmap.Backend, ICanvasSupport, CanvasSupport) then
+      begin
+        TGraphicAccess(SrcGraphic).Draw(CanvasSupport.Canvas,
+          MakeRect(0, 0, TargetBitmap.Width, TargetBitmap.Height));
+        CanvasSupport := nil;
+      end else
       if Supports(TargetBitmap.Backend, IDeviceContextSupport, DeviceContextSupport) then
       begin
         Canvas := TCanvas.Create;
@@ -2703,12 +2726,6 @@ procedure TCustomBitmap32.Assign(Source: TPersistent);
           Canvas.Free;
         end;
         DeviceContextSupport := nil;
-      end else
-      if Supports(TargetBitmap.Backend, ICanvasSupport, CanvasSupport) then
-      begin
-        TGraphicAccess(SrcGraphic).Draw(CanvasSupport.Canvas,
-          MakeRect(0, 0, TargetBitmap.Width, TargetBitmap.Height));
-        CanvasSupport := nil;
       end else
         raise Exception.Create(RCStrInpropriateBackend);
 
@@ -2922,6 +2939,7 @@ begin
   MoveTo(Value.X, Value.Y);
 end;
 
+{$IFDEF RGBA_FORMAT}
 procedure TCustomBitmap32.SwapRB;
 var
   Index : Integer;
@@ -2934,6 +2952,7 @@ begin
     TColor32Entry(FBits[Index]).B := Temp;
   end;
 end;
+{$ENDIF}
 
 procedure TCustomBitmap32.SetPixel(X, Y: Integer; Value: TColor32);
 begin
@@ -5713,6 +5732,8 @@ var
   ChannelMasks: array[TColor32Component] of TChannelMask;
   Channel: TColor32Component;
   Value, NewValue: DWORD;
+  Padding: integer;
+  ScanlineRow: PColor32Array;
 const
 {$IFNDEF RGBA_FORMAT}
   Masks: array[TColor32Component] of DWORD = ($000000FF, $0000FF00, $00FF0000, $FF000000); // BGRA
@@ -5782,6 +5803,9 @@ begin
   // Validate compression and fetch RGBA masks
   if (BitmapHeader.InfoHeader.biCompression = BI_BITFIELDS) then
   begin
+    // reject invalid 24-bit bitfields
+    if BitmapHeader.InfoHeader.biBitCount = 24 then
+      exit;
 
     // For version > v1 the RGB color mask is part of the header so it has already
     // been read as part of the header. For version = v1 it is stored just after
@@ -5849,49 +5873,68 @@ begin
     Stream.Seek(BitmapHeader.InfoHeader.biClrUsed * SizeOf(DWORD), soCurrent);
   end;
 
+  // Pad input rows to 32 bits
+  Padding := (SizeOf(DWORD) - (((BitmapHeader.InfoHeader.biBitCount shr 3) * BitmapHeader.InfoHeader.biWidth) and (SizeOf(DWORD)-1))) and (SizeOf(DWORD)-1);
+
   // Make sure there's enough data left for the pixels
-  with BitmapHeader.InfoHeader do
-    Dec(Size, biWidth * Abs(biHeight) * biBitCount shr 3);
+  Dec(Size, ((BitmapHeader.InfoHeader.biBitCount shr 3) * BitmapHeader.InfoHeader.biWidth + Padding) * Abs(BitmapHeader.InfoHeader.biHeight));
   if (Size < 0) then
     exit;
 
   SetSize(BitmapHeader.InfoHeader.biWidth, Abs(BitmapHeader.InfoHeader.biHeight));
 
+  // Check whether the bitmap is saved top-down or bottom-up:
+  // - Negavive height: top-down
+  // - Positive height: bottom-up
+  if (BitmapHeader.InfoHeader.biHeight > 0) then
+  begin
+    // Bitmap is stored bottom-up
+    Row := Height-1;
+    DeltaRow := -1;
+  end else
+  begin
+    // Bitmap is stored top-down
+    Row := 0;
+    DeltaRow := 1;
+  end;
+
   if (BitmapHeader.InfoHeader.biCompression = BI_RGB) then
   begin
 
-    // Check whether the bitmap is saved top-down or bottom-up:
-    // - Negavive height: top-down
-    // - Positive height: bottom-up
     case BitmapHeader.InfoHeader.biBitCount of
       24:
-        if (BitmapHeader.InfoHeader.biHeight > 0) then
+        // Read one RGB pixel at a time
+        for i := 0 to Height - 1 do
         begin
-          // Bitmap is stored bottom-up: Read one row at a time
-          ChunkSize := Width * BitmapHeader.InfoHeader.biBitCount shr 3;
-          for i := Height - 1 downto 0 do
-            for j := 0 to Width - 1 do
-              Stream.ReadBuffer(Scanline[i]^[j], 3);
-        end
-        else
-        begin
-          // Bitmap is stored top-down: Read one row at a time
-          ChunkSize := Width * BitmapHeader.InfoHeader.biBitCount shr 3;
-          for i := 0 to Height - 1 do
-            for j := 0 to Width - 1 do
-              Stream.ReadBuffer(Scanline[i]^[j], 3);
+          ScanlineRow := Scanline[Row];
+          for j := 0 to Width - 1 do
+          begin
+            // Read RGB data and reset alpha
+            Stream.ReadBuffer(ScanlineRow[j], 3);
+            TColor32Entry(ScanlineRow[j]).A := $FF;
+          end;
+
+          if (Padding > 0) then
+            Stream.Seek(Padding, soCurrent);
+
+          Inc(Row, DeltaRow);
         end;
+
       32:
-        if (BitmapHeader.InfoHeader.biHeight > 0) then
         begin
-          // Bitmap is stored bottom-up: Read one row at a time
-          ChunkSize := Width * BitmapHeader.InfoHeader.biBitCount shr 3;
-          for i := Height - 1 downto 0 do
-            Stream.ReadBuffer(Scanline[i]^, ChunkSize);
-        end
-        else
-          // Bitmap is stored top-down: Read all rows in one go
-          Stream.ReadBuffer(Bits^, Width * Height * SizeOf(DWORD))
+          Assert(Padding = 0);
+
+          if (BitmapHeader.InfoHeader.biHeight > 0) then
+          begin
+            // Bitmap is stored bottom-up: Read one row at a time
+            ChunkSize := Width * SizeOf(DWORD);
+            for i := Height - 1 downto 0 do
+              Stream.ReadBuffer(Scanline[i]^, ChunkSize);
+          end
+          else
+            // Bitmap is stored top-down: Read all rows in one go
+            Stream.ReadBuffer(Bits^, Width * Height * SizeOf(DWORD))
+        end;
     end;
 
     if (InfoHeaderVersion < InfoHeaderVersion3) then
@@ -5903,6 +5946,7 @@ begin
 {$ENDIF RGBA_FORMAT}
   end else
   begin
+    Assert(Padding = 0);
 
     // Determine how much we need to shift the masked color values in order
     // to get them into the desired position.
@@ -5911,18 +5955,6 @@ begin
       ChannelMasks[Channel].Shift := GetShift(BitmapHeader.Header.bmiColors[ChannelToIndex[Channel]], Masks[Channel]);
       ChannelMasks[Channel].Mask := Masks[Channel];
       ChannelMasks[Channel].Enabled := (Channel <> ccAlpha) or (InfoHeaderVersion >= InfoHeaderVersion3);
-    end;
-
-    if (BitmapHeader.InfoHeader.biHeight > 0) then
-    begin
-      // Bitmap is stored bottom-up
-      Row := Height-1;
-      DeltaRow := -1;
-    end else
-    begin
-      // Bitmap is stored top-down
-      Row := 0;
-      DeltaRow := 1;
     end;
 
     // Read one row at a time into our bitmap and then decode it in place.
@@ -6018,8 +6050,8 @@ begin
 
   FileHeader.bfType := $4D42; // Magic bytes for Windows Bitmap
   FileHeader.bfSize := BitmapSize + SizeOf(TBitmapFileHeader) + SizeOf(TBitmapInfoHeader); // Size of file
-  FileHeader.bfReserved1 := $5247; // Actual value doesn't matter.
-  FileHeader.bfReserved2 := $3233; //   -
+  FileHeader.bfReserved1 := 0;
+  FileHeader.bfReserved2 := 0;
   // The offset, in bytes, from the beginning of the BITMAPFILEHEADER structure to the bitmap bits.
   FileHeader.bfOffBits := SizeOf(TBitmapFileHeader) + SizeOf(TBitmapInfoHeader); // = 14 + 40
 
@@ -6819,9 +6851,7 @@ begin
     (FBackend as IDeviceContextSupport).DrawTo(hDst, DstRect, SrcRect);
 end;
 
-procedure TBitmap32.TileTo(hDst: {$IFDEF BCB}Cardinal{$ELSE}HDC{$ENDIF}; const DstRect, SrcRect: TRect);
-const
-  MaxTileSize = 1024;
+procedure TBitmap32.TileTo(hDst: {$IFDEF BCB}Cardinal{$ELSE}HDC{$ENDIF}; const DstRect, SrcRect: TRect; MaxTileSize: integer);
 var
   DstW, DstH: Integer;
   TilesX, TilesY: Integer;
@@ -6860,8 +6890,8 @@ begin
           StretchTransfer(Buffer, R, ClipRect, Self, SrcRect, Resampler, DrawMode, FOnPixelCombine);
 
           DeviceContextSupport.DrawTo(hDst,
-            MakeRect(X + DstRect.Left, Y + DstRect.Top, X + ClipRect.Right,
-            Y + ClipRect.Bottom), MakeRect(0, 0, Buffer.Width, Buffer.Height)
+            MakeRect(X + DstRect.Left, Y + DstRect.Top, X + DstRect.Left+ClipRect.Right, Y + DstRect.Top+ClipRect.Bottom),
+            Buffer.BoundsRect
           );
         end;
       end;
@@ -6885,9 +6915,9 @@ begin
   DrawTo(Dst.Handle, DstRect, SrcRect);
 end;
 
-procedure TBitmap32.TileTo(Dst: TControlCanvas; const DstRect, SrcRect: TRect);
+procedure TBitmap32.TileTo(Dst: TControlCanvas; const DstRect, SrcRect: TRect; MaxTileSize: integer);
 begin
-  TileTo(Dst.Handle, DstRect, SrcRect);
+  TileTo(Dst.Handle, DstRect, SrcRect, MaxTileSize);
 end;
 {$ENDIF}
 
@@ -6999,7 +7029,7 @@ begin
     lfCharSet := Byte(Font.Charset);
 
     if AnsiCompareText(Font.Name, 'Default') = 0 then  // do not localize
-      StrPLCopy(lfFaceName, DefFontData.Name, LF_FACESIZE-1)
+      StrPLCopy(lfFaceName, string(DefFontData.Name), LF_FACESIZE-1)
     else
       StrPLCopy(lfFaceName, Font.Name, LF_FACESIZE-1);
 

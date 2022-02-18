@@ -287,7 +287,7 @@ type
 
   TRadialDistortionTransformation = class(TTransformation)
   protected
-    FCoefficient1, FCoefficient2: TFloat;
+    FCoefficient1, FCoefficient2, FScale: TFloat;
     FFocalPoint: TFloatPoint;
     r_0, r_tgt_max, r_tgt_min: Single;
     FMapElements: Integer;
@@ -295,6 +295,7 @@ type
     function LookUpReverseMap(const r_tgt: TFloat): TFloat;
     procedure SetCoefficient1(const Value: TFloat);
     procedure SetCoefficient2(const Value: TFloat);
+    procedure SetScale(const Value: TFloat);
     procedure SetMapElements(const Value: Integer);
     procedure PrepareReverseMap;
     procedure PrepareTransform; override;
@@ -306,6 +307,7 @@ type
   published
     property Coefficient1: TFloat read FCoefficient1 write SetCoefficient1;
     property Coefficient2: TFloat read FCoefficient2 write SetCoefficient2;
+    property Scale: TFloat read FScale write SetScale;
     property MapElements: Integer read FMapElements write SetMapElements;
   end;
 
@@ -348,13 +350,13 @@ type
 
 function TransformPoints(Points: TArrayOfArrayOfFixedPoint; Transformation: TTransformation): TArrayOfArrayOfFixedPoint;
 
-procedure Transform(Dst, Src: TCustomBitmap32; Transformation: TTransformation); overload;
+procedure Transform(Dst, Src: TCustomBitmap32; Transformation: TTransformation; Reverse: boolean = True); overload;
 procedure Transform(Dst, Src: TCustomBitmap32; Transformation: TTransformation;
-  const DstClip: TRect); overload;
+  const DstClip: TRect; Reverse: boolean = True); overload;
 procedure Transform(Dst, Src: TCustomBitmap32; Transformation: TTransformation;
-  Rasterizer: TRasterizer); overload;
+  Rasterizer: TRasterizer; Reverse: boolean = True); overload;
 procedure Transform(Dst, Src: TCustomBitmap32; Transformation: TTransformation;
-  Rasterizer: TRasterizer; const DstClip: TRect); overload;
+  Rasterizer: TRasterizer; const DstClip: TRect; Reverse: boolean = True); overload;
 
 procedure RasterizeTransformation(Vectormap: TVectormap;
   Transformation: TTransformation; DstRect: TRect;
@@ -542,38 +544,38 @@ begin
   end;
 end;
 
-procedure Transform(Dst, Src: TCustomBitmap32; Transformation: TTransformation);
+procedure Transform(Dst, Src: TCustomBitmap32; Transformation: TTransformation; Reverse: boolean);
 var
   Rasterizer: TRasterizer;
 begin
   Rasterizer := DefaultRasterizerClass.Create;
   try
-    Transform(Dst, Src, Transformation, Rasterizer);
+    Transform(Dst, Src, Transformation, Rasterizer, Reverse);
   finally
     Rasterizer.Free;
   end;
 end;
 
-procedure Transform(Dst, Src: TCustomBitmap32; Transformation: TTransformation; const DstClip: TRect);
+procedure Transform(Dst, Src: TCustomBitmap32; Transformation: TTransformation; const DstClip: TRect; Reverse: boolean);
 var
   Rasterizer: TRasterizer;
 begin
   Rasterizer := DefaultRasterizerClass.Create;
   try
-    Transform(Dst, Src, Transformation, Rasterizer, DstClip);
+    Transform(Dst, Src, Transformation, Rasterizer, DstClip, Reverse);
   finally
     Rasterizer.Free;
   end;
 end;
 
 procedure Transform(Dst, Src: TCustomBitmap32; Transformation: TTransformation;
-  Rasterizer: TRasterizer);
+  Rasterizer: TRasterizer; Reverse: boolean);
 begin
-  Transform(Dst, Src, Transformation, Rasterizer, Dst.BoundsRect);
+  Transform(Dst, Src, Transformation, Rasterizer, Dst.BoundsRect, Reverse);
 end;
 
 procedure Transform(Dst, Src: TCustomBitmap32; Transformation: TTransformation;
-  Rasterizer: TRasterizer; const DstClip: TRect);
+  Rasterizer: TRasterizer; const DstClip: TRect; Reverse: boolean);
 var
   DstRect: TRect;
   Transformer: TTransformer;
@@ -585,7 +587,7 @@ begin
 
   if not Dst.MeasuringMode then
   begin
-    Transformer := TTransformer.Create(Src.Resampler, Transformation);
+    Transformer := TTransformer.Create(Src.Resampler, Transformation, Reverse);
     try
       Rasterizer.Sampler := Transformer;
       Rasterizer.Rasterize(Dst, DstRect, Src);
@@ -1677,6 +1679,7 @@ constructor TRadialDistortionTransformation.Create;
 begin
   FCoefficient1 := 0;
   FCoefficient2 := 0;
+  FScale := 1;
   FMapElements := 0;
 end;
 
@@ -1687,53 +1690,69 @@ end;
 
 procedure TRadialDistortionTransformation.PrepareReverseMap;
 var
-  i, j, jmax, unset, LowerI, UpperI, interpolated, mapToSameIndex, IndexOutOfRange: Integer;
+  i, j, LowerI, UpperI, jmax: Integer;
   r_src, r_tgt, LowerValue, UpperValue: TFloat;
+{$IFDEF DEBUG}
+  // some counters to evaluate the mapping
+  interpolated, unset, mapToSameIndex, IndexOutOfRange: Integer;
+{$ENDIF}
 begin
   if MapElements <= 1 then
     MapElements := Trunc(r_0);
+
   r_tgt_max := 2;
   r_tgt_min := -0.5;
+
   SetLength(Map, MapElements);
   for i := 0 to High(Map) do
     Map[i] := -1;
 
   jmax := 1000;
+{$IFDEF DEBUG}
   mapToSameIndex := 0;
   IndexOutOfRange := 0;
+{$ENDIF}
   for j := 0 to jmax do
   begin
     r_src := j/jmax*2;
-    r_tgt := (1 + FCoefficient1 * Sqr(r_src) + FCoefficient2 * Power(r_src, 4));
+    r_tgt := Scale*(1 + FCoefficient1 * Sqr(r_src) + FCoefficient2 * Power(r_src, 4));
     Assert(InRange(r_tgt, r_tgt_min, r_tgt_max));
     i := Trunc((r_tgt*r_src-r_tgt_min)/(r_tgt_max-r_tgt_min)*(High(Map)-1));
     if not InRange(i, 0, High(Map)) then
     begin
+{$IFDEF DEBUG}
       Inc(IndexOutOfRange);
-      //OutputDebugString(PChar(Format('PrepareReverseMap: i=%d out of range (0, MapElements=%d), r_tgt=%f', [ i, MapElements, r_tgt ])))
+      // OutputDebugString(PChar(Format('PrepareReverseMap: i=%d out of range (0, MapElements=%d), r_tgt=%f', [ i, MapElements, r_tgt ])))
+{$ENDIF}
     end
     else
     if Map[i]<>-1 then
     begin
+{$IFDEF DEBUG}
       Inc(mapToSameIndex);
       // OutputDebugString(PChar(Format('PrepareReverseMap: Map[i=%d] already has value %f (wanted to put %f there)', [ i, Map[i], r_tgt ])))
+{$ENDIF}
     end
     else
       Map[i] := r_tgt;
   end;
 
+{$IFDEF DEBUG}
   unset := 0;
   for i := 0 to High(Map) do
   begin
     if Map[i] = -1 then
       Inc(unset);
   end;
+{$ENDIF}
 
   // linear interpolation where Map[i] == -1 (but no extrapolation)
   i := 0;
   LowerI := -1;
   LowerValue := -1;
+{$IFDEF DEBUG}
   interpolated := 0;
+{$ENDIF}
   repeat
     if Map[i] = -1 then
     begin
@@ -1748,7 +1767,9 @@ begin
           for j := LowerI+1 to UpperI-1 do
           begin
             Map[j] := LowerValue + (UpperValue-LowerValue) * (j-LowerI) / (UpperI - LowerI);
+{$IFDEF DEBUG}
             Inc(interpolated);
+{$ENDIF}
           end;
         end;
       end;
@@ -1772,9 +1793,11 @@ begin
       Map[i] := 1;
   end;
 {$IFDEF DEBUG}
-{$IFDEF COMPILER2009_UP}
+  // Delphi 2010 doesn't have overloads for Min/MaxValue(array of single)
+  // https://github.com/graphics32/graphics32/issues/153
+  {$IFDEF COMPILERXE1_UP}
   OutputDebugString(PChar(Format('TRadialDistortionTransformation.PrepareReverseMap: MinValue(Map)=%f MaxValue(Map)=%f', [ MinValue(Map), MaxValue(Map) ])));
-{$ENDIF}
+  {$ENDIF}
 {$ENDIF}
 end;
 
@@ -1836,6 +1859,12 @@ begin
   Changed;
 end;
 
+procedure TRadialDistortionTransformation.SetScale(const Value: TFloat);
+begin
+  FScale := Value;
+  Changed;
+end;
+
 procedure TRadialDistortionTransformation.SetMapElements(const Value: Integer);
 begin
   FMapElements := Value;
@@ -1850,7 +1879,7 @@ begin
   d.x := SrcX;
   d.y := SrcY;
   r_src := Distance(FFocalPoint, d)/r_0;
-  r_tgt := 1 + FCoefficient1 * Sqr(r_src) + FCoefficient2 * Power(r_src, 4);
+  r_tgt := Scale*(1 + FCoefficient1 * Sqr(r_src) + FCoefficient2 * Power(r_src, 4));
   DstX := FFocalPoint.X + (d.X-FFocalPoint.X) * r_tgt;
   DstY := FFocalPoint.Y + (d.Y-FFocalPoint.Y) * r_tgt;
 end;

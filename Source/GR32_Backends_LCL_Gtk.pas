@@ -52,12 +52,11 @@ type
 
   { TLCLBackend }
 
-  TLCLBackend = class(TCustomBackend,
-    IPaintSupport, ITextSupport, IFontSupport, ICanvasSupport)
+  TLCLBackend = class(TCustomBackend, IPaintSupport, ITextSupport,
+    IFontSupport, ICanvasSupport, IDeviceContextSupport,
+    IInteroperabilitySupport)
   private
     FFont: TFont;
-    FCanvas: TCanvas;
-    FCanvasHandle: TGtkDeviceContext;
     FOnFontChange: TNotifyEvent;
     FOnCanvasChange: TNotifyEvent;
 
@@ -76,10 +75,6 @@ type
 
     procedure InitializeSurface(NewWidth, NewHeight: Integer; ClearBuffer: Boolean); override;
     procedure FinalizeSurface; override;
-
-    procedure WidgetSetStretchDrawRGB32Bitmap(Dest: HDC; DstX, DstY, DstWidth,
-      DstHeight: Integer; SrcX, SrcY, SrcWidth, SrcHeight: Integer;
-      SrcBitmap: TBitmap32);
 
     procedure CanvasChanged;
   public
@@ -125,6 +120,10 @@ type
     property Font: TFont read GetFont write SetFont;
     property OnFontChange: TNotifyEvent read FOnFontChange write FOnFontChange;
 
+    { IInteroperabilitySupport }
+    function CopyFrom(ImageBitmap: TFPImageBitmap): Boolean; overload;
+    function CopyFrom(Graphic: TGraphic): Boolean; overload;
+
     { ICanvasSupport }
     function GetCanvasChange: TNotifyEvent;
     procedure SetCanvasChange(Handler: TNotifyEvent);
@@ -142,10 +141,6 @@ implementation
 
 uses
   GR32_LowLevel;
-
-resourcestring
-  RCStrCannotAllocateMemory = 'Can''t allocate memory for the DIB';
-  RCStrCannotAllocateThePixBuf = 'Can''t allocate the Pixbuf';
 
 { TLCLBackend }
 
@@ -183,11 +178,9 @@ end;
 
 procedure TLCLBackend.InitializeSurface(NewWidth, NewHeight: Integer; ClearBuffer: Boolean);
 var
-  CDBitmap: TBitmap;
   LazImage: TLazIntfImage;
 begin
   { We allocate our own memory for the image }
-
   FRawImage.Description.Init_BPP32_B8G8R8A8_BIO_TTB(NewWidth, NewHeight);
 
   FRawImage.CreateData(ClearBuffer);
@@ -197,18 +190,14 @@ begin
     raise Exception.Create('[TLCLBackend.InitializeSurface] ERROR FBits = nil');
 
   LazImage := TLazIntfImage.Create(FRawImage, False);
+  try
+    FBitmap.LoadFromIntfImage(LazImage);
 
-  if FBitmap=nil then
-   begin
-     FBitmap := TBitmap.Create;
-   end;
-
-  FBitmap.LoadFromIntfImage(LazImage);
-
-  FWidth := NewWidth;
-  FHeight := NewHeight;
-
-  LazImage.Free;
+    FWidth := NewWidth;
+    FHeight := NewHeight;
+  finally
+    LazImage.Free;
+  end;
 end;
 
 procedure TLCLBackend.FinalizeSurface;
@@ -218,7 +207,7 @@ begin
     FRawImage.FreeData;
     FBits := nil;
 
-    FBitmap.Handle := HBITMAP(0);
+    FBitmap.ReleaseHandle;
   end;
   FBits := nil;
 end;
@@ -245,29 +234,17 @@ begin
   // empty by purpose
 end;
 
-procedure TLCLBackend.WidgetSetStretchDrawRGB32Bitmap(Dest: HDC;
-  DstX, DstY, DstWidth, DstHeight: Integer;
-  SrcX, SrcY, SrcWidth, SrcHeight: Integer; SrcBitmap: TBitmap32);
+procedure TLCLBackend.DoPaint(ABuffer: TBitmap32; AInvalidRects: TRectList;
+  ACanvas: TCanvas; APaintBox: TCustomPaintBox32);
 var
   P: TPoint;
 begin
-  P := TGtkDeviceContext(Dest).Offset;
+  P := TGtkDeviceContext(ACanvas.Handle).Offset;
 
-  Inc(DstX, P.X);
-  Inc(DstY, P.Y);
-
-  gdk_draw_rgb_32_image(TGtkDeviceContext(Dest).Drawable,
-    TGtkDeviceContext(Dest).GC, DstX, DstY, SrcWidth, SrcHeight,
-    GDK_RGB_DITHER_NONE, pguchar(SrcBitmap.Bits), SrcBitmap.Width * 4
-  );
-end;
-
-procedure TLCLBackend.DoPaint(ABuffer: TBitmap32; AInvalidRects: TRectList;
-  ACanvas: TCanvas; APaintBox: TCustomPaintBox32);
-begin
-  WidgetSetStretchDrawRGB32Bitmap(ACanvas.Handle,
-    0, 0, ABuffer.Width, ABuffer.Height,
-    0, 0, ABuffer.Width, ABuffer.Height, ABuffer
+  gdk_draw_rgb_32_image(TGtkDeviceContext(ACanvas.Handle).Drawable,
+    TGtkDeviceContext(ACanvas.Handle).GC, P.X, P.Y,
+    ABuffer.Width, ABuffer.Height,
+    GDK_RGB_DITHER_NONE, pguchar(ABuffer.Bits), ABuffer.Width * 4
   );
 end;
 
@@ -325,30 +302,24 @@ end;
 
 procedure TLCLBackend.Textout(X, Y: Integer; const Text: string);
 begin
-  if not Assigned(FCanvas) then GetCanvas;
-
   UpdateFont;
 
-  if FCanvas = nil then exit;
-
   if not FOwner.MeasuringMode then
-    FCanvas.TextOut(X, Y, Text);
+    Canvas.TextOut(X, Y, Text);
 end;
 
 procedure TLCLBackend.Textout(X, Y: Integer; const ClipRect: TRect; const Text: string);
 begin
-  if not Assigned(FCanvas) then GetCanvas;
-
   UpdateFont;
 
-  LCLIntf.ExtTextOut(FCanvas.Handle, X, Y, ETO_CLIPPED, @ClipRect, PChar(Text), Length(Text), nil);
+  LCLIntf.ExtTextOut(Canvas.Handle, X, Y, ETO_CLIPPED, @ClipRect, PChar(Text), Length(Text), nil);
 end;
 
 procedure TLCLBackend.Textout(var DstRect: TRect; const Flags: Cardinal; const Text: string);
 begin
   UpdateFont;
 
-  LCLIntf.DrawText(FCanvas.Handle, PChar(Text), Length(Text), DstRect, Flags);
+  LCLIntf.DrawText(Canvas.Handle, PChar(Text), Length(Text), DstRect, Flags);
 end;
 
 function TLCLBackend.TextExtent(const Text: string): TSize;
@@ -356,13 +327,9 @@ begin
   Result.cx := 0;
   Result.cy := 0;
 
-  if not Assigned(FCanvas) then GetCanvas;
-
   UpdateFont;
 
-  if FCanvas = nil then exit;
-
-  Result := FCanvas.TextExtent(Text);
+  Result := Canvas.TextExtent(Text);
 end;
 
 procedure TLCLBackend.TextoutW(X, Y: Integer; const Text: Widestring);
@@ -412,8 +379,82 @@ end;
 procedure TLCLBackend.UpdateFont;
 begin
   FFont.OnChange := FOnFontChange;
+  Canvas.Font := FFont;
+end;
 
-  if Assigned(FCanvas) then FCanvas.Font := FFont;
+
+{ IInteroperabilitySupport }
+
+type
+  TGraphicAccess = class(TGraphic);
+
+function TLCLBackend.CopyFrom(ImageBitmap: TFPImageBitmap): Boolean;
+var
+  Src: TLazIntfImage;
+  Dest: TLazIntfImage;
+  X, Y: Integer;
+  SrcLine: PCardinalArray;
+  DestLine: PByte;
+begin
+  Src := ImageBitmap.CreateIntfImage;
+  Dest := FBitmap.CreateIntfImage;
+  try
+    if ImageBitmap.Transparent then
+    begin
+      for Y := 0 to Src.Height - 1 do
+      begin
+        SrcLine := Src.GetDataLineStart(Y);
+        DestLine := FRawImage.GetLineStart(Y);
+        for X := 0 to Src.Width - 1 do
+        begin
+          DestLine^ := Blue(SrcLine^[X]);
+          Inc(DestLine);
+          DestLine^ := Green(SrcLine^[X]);
+          Inc(DestLine);
+          DestLine^ := Red(SrcLine^[X]);
+          Inc(DestLine);
+          DestLine^ := SrcLine^[X] shr 24;
+          Inc(DestLine);
+        end;
+      end;
+    end
+    else
+    begin
+      for Y := 0 to Src.Height - 1 do
+      begin
+        SrcLine := Src.GetDataLineStart(Y);
+        DestLine := FRawImage.GetLineStart(Y);
+        for X := 0 to Src.Width - 1 do
+        begin
+          DestLine^ := Blue(SrcLine^[X]);
+          Inc(DestLine);
+          DestLine^ := Green(SrcLine^[X]);
+          Inc(DestLine);
+          DestLine^ := Red(SrcLine^[X]);
+          Inc(DestLine);
+          DestLine^ := $FF;
+          Inc(DestLine);
+        end;
+      end;
+    end;
+  finally
+    Src.Free;
+  end;
+
+  Result := True;
+end;
+
+
+function TLCLBackend.CopyFrom(Graphic: TGraphic): Boolean;
+begin
+  if Graphic is TFPImageBitmap then
+    Result := CopyFrom(TFPImageBitmap(Graphic));
+
+  if not Result then
+  begin
+    TGraphicAccess(Graphic).Draw(Canvas, MakeRect(0, 0, Canvas.Width, Canvas.Height));
+    Result := True;
+  end;
 end;
 
 
@@ -431,31 +472,16 @@ end;
 
 function TLCLBackend.GetCanvas: TCanvas;
 begin
-  if not Assigned(FCanvas) then
-  begin
-    FCanvas := TCanvas.Create;
-
-    FCanvasHandle := TGtkDeviceContext.Create;
-
-    FCanvas.Handle := HDC(FCanvasHandle);
-    FCanvas.OnChange := CanvasChangedHandler;
-  end;
-  Result := FCanvas;
+  Result := FBitmap.Canvas;
 end;
 
 procedure TLCLBackend.DeleteCanvas;
 begin
-  if Assigned(FCanvas) then
-  begin
-    FCanvas.Handle := 0;
-    FCanvas.Free;
-    FCanvas := nil;
-  end;
 end;
 
 function TLCLBackend.CanvasAllocated: Boolean;
 begin
-  Result := Assigned(FCanvas);
+  Result := Canvas <> nil;
 end;
 
 end.
