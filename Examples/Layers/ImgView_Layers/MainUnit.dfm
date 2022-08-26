@@ -22,6 +22,7 @@ object MainForm: TMainForm
     Width = 656
     Height = 590
     Align = alClient
+    Bitmap.DrawMode = dmBlend
     Bitmap.ResamplerClassName = 'TNearestResampler'
     BitmapAlign = baCustom
     Scale = 1.000000000000000000
@@ -35,6 +36,8 @@ object MainForm: TMainForm
     TabStop = True
     OnKeyDown = ImgViewKeyDown
     OnMouseDown = ImgViewMouseDown
+    OnMouseMove = ImgViewMouseMove
+    OnMouseUp = ImgViewMouseUp
     OnMouseWheelDown = ImgViewMouseWheelDown
     OnMouseWheelUp = ImgViewMouseWheelUp
     OnPaintStage = ImgViewPaintStage
@@ -71,16 +74,6 @@ object MainForm: TMainForm
         TabOrder = 0
         Text = '100%'
         OnChange = ScaleComboChange
-        Items.Strings = (
-          '    25%'
-          '    50%'
-          '    75%'
-          '  100%'
-          '  200%'
-          '  300%'
-          '  400%'
-          '  800%'
-          '1600%')
       end
       object PnlImageHeader: TPanel
         Left = 1
@@ -395,15 +388,27 @@ object MainForm: TMainForm
         OnClick = MnuPrintClick
       end
     end
+    object MenuItemEdit: TMenuItem
+      Caption = 'Edit'
+      object MenuItemCopy: TMenuItem
+        Action = ActionCopy
+      end
+      object MenuItemPasteNew: TMenuItem
+        Action = ActionPasteNew
+      end
+      object MenuItemPasteInto: TMenuItem
+        Action = ActionPasteInto
+      end
+    end
     object MnuLayers: TMenuItem
       Caption = 'Layers'
       OnClick = MnuLayersClick
       object MnuNewBitmapLayer: TMenuItem
-        Caption = 'New Bitmap Layer'
+        Caption = 'New Bitmap Layer...'
         OnClick = MnuNewBitmapLayerClick
       end
       object MnuNewBitmapRGBA: TMenuItem
-        Caption = 'New Bitmap Layer with Alpha Channel'
+        Caption = 'New Bitmap Layer with Alpha Channel...'
         OnClick = MnuNewBitmapRGBAClick
       end
       object MnuNewCustomLayer: TMenuItem
@@ -518,5 +523,27 @@ object MainForm: TMainForm
   object SaveDialog: TSaveDialog
     Left = 64
     Top = 104
+  end
+  object ActionList: TActionList
+    Left = 240
+    Top = 180
+    object ActionCopy: TAction
+      Caption = 'Copy'
+      ShortCut = 16451
+      OnExecute = ActionCopyExecute
+      OnUpdate = ActionCopyUpdate
+    end
+    object ActionPasteNew: TAction
+      Caption = 'Paste as new layer'
+      ShortCut = 16470
+      OnExecute = ActionPasteNewExecute
+      OnUpdate = ActionPasteNewUpdate
+    end
+    object ActionPasteInto: TAction
+      Caption = 'Paste into selection'
+      ShortCut = 24662
+      OnExecute = ActionPasteIntoExecute
+      OnUpdate = ActionPasteIntoUpdate
+    end
   end
 end
