@@ -1,4 +1,4 @@
-unit GR32_VectorUtils;
+﻿unit GR32_VectorUtils;
 
 (* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1 or LGPL 2.1 with linking exception
@@ -1516,7 +1516,7 @@ var
     CX := X1 + X2;
     CY := Y1 + Y2;
 
-    R := X1 * CX + Y1 * CY; //(1 - cos(�))  (range: 0 <= R <= 2)
+    R := X1 * CX + Y1 * CY; //(1 - cos(Θ))  (range: 0 <= R <= 2)
     if R < RMin then
     begin
       AddPoint(Delta * X1, Delta * Y1);
@@ -1642,14 +1642,18 @@ var
   begin
     PX := X;
     PY := Y;
-    case JoinStyle of
-      jsMiter: AddMitered(A.X, A.Y, B.X, B.Y);
-      jsBevel: AddBevelled(A.X, A.Y, B.X, B.Y);
-      jsRoundEx: AddRoundedJoin(A.X, A.Y, B.X, B.Y);
-      else if (X1 * Y2 - X2 * Y1) * Delta < 0 then //miter when concave
-        AddMitered(A.X, A.Y, B.X, B.Y) else
-        AddRoundedJoin(A.X, A.Y, B.X, B.Y);
-    end;
+
+    if (JoinStyle <> jsRoundEx) and ((X1 * Y2 - X2 * Y1) * Delta < 0)  then
+    begin
+      AddPoint(Delta * X1, Delta * Y1);
+      AddPoint(Delta * X2, Delta * Y2);
+    end else
+      case JoinStyle of
+        jsMiter: AddMitered(A.X, A.Y, B.X, B.Y);
+        jsBevel: AddBevelled(A.X, A.Y, B.X, B.Y);
+        jsRound: AddRoundedJoin(A.X, A.Y, B.X, B.Y);
+        jsRoundEx: AddRoundedJoin(A.X, A.Y, B.X, B.Y);
+      end;
   end;
 
 begin
@@ -2088,7 +2092,7 @@ begin
   DashOffset := Wrap(DashOffset, V);
 
   DashOffset := DashOffset - V;
-  while DashOffset < 0 do
+  while (DashOffset < 0) and (DashIndex < High(DashArray)) do
   begin
     Inc(DashIndex);
     DashOffset := DashOffset + DashArray[DashIndex];
@@ -2108,7 +2112,12 @@ begin
     AddDash(0);
     len1 := Length(Result[0]);
     len2 := Length(Result[J]);
-    if (len1 > 0) and (len2 > 0) then
+    // Only merge if the first and last points are contributing on a dash
+    {$IFNDEF FPC}
+      if (len1 > 0) and (len2 > 0) and (Result[0][0] = Result[J][len2 - 1]) then
+    {$ELSE}
+      if (len1 > 0) and (len2 > 0) and (Result[0][0].X = Result[J][len2 - 1].X) and (Result[0][0].Y = Result[J][len2 - 1].Y) then
+    {$ENDIF}  
     begin
       SetLength(Result[0], len1 + len2 -1);
       Move(Result[0][0], Result[0][len2 - 1], SizeOf(TFloatPoint) * len1);

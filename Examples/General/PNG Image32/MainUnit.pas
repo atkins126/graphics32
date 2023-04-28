@@ -26,7 +26,10 @@ var
 implementation
 
 uses
-  GR32_PNG, GR32_PortableNetworkGraphic;
+  GR32.Examples,
+  GR32,
+  GR32_PNG,
+  GR32_PortableNetworkGraphic;
 
 {$R *.dfm}
 
@@ -45,7 +48,7 @@ begin
     PNG := TPortableNetworkGraphic32.Create;
     try
       PNG.LoadFromFile(OpenDialog.FileName);
-      PNG.AssignTo(ImageDisplay.Bitmap);
+      ImageDisplay.Bitmap.Assign(PNG);
     finally
       PNG.Free;
     end;
@@ -103,14 +106,8 @@ begin
   ImageDisplay.AlignWithMargins := True;
 {$ENDIF}
 
-  if FileExists('..\Demo.png') then
-    with TPortableNetworkGraphic32.Create do
-      try
-        LoadFromFile('..\Demo.png');
-        AssignTo(ImageDisplay.Bitmap);
-      finally
-        Free;
-      end;
+  if Graphics32Examples.MediaFileExists('Dice.png') then
+    LoadBitmap32FromPNG(ImageDisplay.Bitmap, Graphics32Examples.MediaFolder+'\Dice.png');
 end;
 
 end.

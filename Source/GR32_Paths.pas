@@ -58,18 +58,13 @@ type
     FCurrentPoint: TFloatPoint;
     FLastControlPoint: TFloatPoint;
     FControlPointOrigin: TControlPointOrigin;
-    FChanged: boolean;
   protected
     procedure AddPoint(const Point: TFloatPoint); virtual;
     procedure AssignTo(Dest: TPersistent); override;
-    procedure DoChanged; virtual;
   public
     constructor Create; override;
-    procedure Clear; virtual;
 
-    procedure BeginUpdate; override;
-    procedure EndUpdate; override;
-    procedure Changed; override;
+    procedure Clear; virtual;
 
     procedure BeginPath; deprecated 'No longer necessary. Path is started automatically';
     procedure EndPath(Close: boolean = False); virtual;
@@ -90,6 +85,7 @@ type
     procedure HorizontalLineToRelative(const X: TFloat); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
     procedure VerticalLineTo(const Y: TFloat); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
     procedure VerticalLineToRelative(const Y: TFloat); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
+    // Cubic beziers
     procedure CurveTo(const X1, Y1, X2, Y2, X, Y: TFloat); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
     procedure CurveTo(const X2, Y2, X, Y: TFloat); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
     procedure CurveTo(const C1, C2, P: TFloatPoint); overload; virtual;
@@ -98,6 +94,7 @@ type
     procedure CurveToRelative(const X2, Y2, X, Y: TFloat); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
     procedure CurveToRelative(const C1, C2, P: TFloatPoint); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
     procedure CurveToRelative(const C2, P: TFloatPoint); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
+    // Quadratic bezier
     procedure ConicTo(const X1, Y1, X, Y: TFloat); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
     procedure ConicTo(const P1, P: TFloatPoint); overload; virtual;
     procedure ConicTo(const X, Y: TFloat); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
@@ -297,35 +294,6 @@ begin
   FControlPointOrigin := cpNone;
 end;
 
-procedure TCustomPath.BeginUpdate;
-begin
-  inherited BeginUpdate;
-end;
-
-procedure TCustomPath.EndUpdate;
-begin
-  inherited EndUpdate;
-
-  if (UpdateCount = 0) and (FChanged) then
-  begin
-    FChanged := False;
-    DoChanged;
-  end;
-end;
-
-procedure TCustomPath.Changed;
-begin
-  BeginUpdate;
-  FChanged := True;
-  EndUpdate;
-end;
-
-procedure TCustomPath.DoChanged;
-begin
-  // Execute OnChange event
-  inherited Changed;
-end;
-
 procedure TCustomPath.AddPoint(const Point: TFloatPoint);
 begin
 end;
@@ -364,7 +332,6 @@ end;
 procedure TCustomPath.Clear;
 begin
   FControlPointOrigin := cpNone;
-  FChanged := False;
 end;
 
 procedure TCustomPath.ClosePath;
@@ -710,18 +677,21 @@ end;
 
 procedure TFlattenedPath.AddPoint(const Point: TFloatPoint);
 var
-  n: Integer;
+  p: TFloatPoint;
 begin
   if (FPointIndex = 0) then
     DoBeginPath;
 
+  // Work around for Delphi compiler bug.
+  // We'll get an AV on the assignment below without it.
+  p := Point;
+
   // Grow buffer if required
-  n := Length(FPoints);
-  if (FPointIndex >= n) then
-    SetLength(FPoints, n + VertexBufferSizeGrow);
+  if (FPointIndex > High(FPoints)) then
+    SetLength(FPoints, Length(FPoints) + VertexBufferSizeGrow);
 
   // Add vertex to buffer
-  FPoints[FPointIndex] := Point;
+  FPoints[FPointIndex] := p;
   Inc(FPointIndex);
 end;
 
@@ -805,7 +775,10 @@ begin
   begin
     TCanvas32(Dest).BeginUpdate;
     inherited;
-    TCanvas32(Dest).FBitmap := FBitmap; // TODO : Shouldn't this be .FBitmap.Assign(FBitmap)?
+    // DONE : Shouldn't this be .FBitmap.Assign(FBitmap)?
+    // No, because TCanvas32 doesn't own the bitmap; It just references it.
+    TCanvas32(Dest).FBitmap := FBitmap;
+
     TCanvas32(Dest).FRenderer.Assign(FRenderer);
     TCanvas32(Dest).FBrushes.Assign(FBrushes);
     TCanvas32(Dest).Changed;
