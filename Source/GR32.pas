@@ -28,14 +28,6 @@ unit GR32;
  * Portions created by the Initial Developer are Copyright (C) 2000-2009
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
- *   Michael Hansen <dyster_tid@hotmail.com>
- *   Andre Beckedorf <Andre@metaException.de>
- *   Mattias Andersson <mattias@centaurix.com>
- *   J. Tulach <tulach at position.cz>
- *   Jouni Airaksinen <markvera at spacesynth.net>
- *   Timothy Weber <teejaydub at users.sourceforge.net>
- *
  * ***** END LICENSE BLOCK ***** *)
 
 interface
@@ -43,20 +35,44 @@ interface
 {$I GR32.inc}
 
 uses
+  Math,
 {$IFDEF FPC}
   LCLIntf, LCLType, Types,
 {$ELSE}
-  UITypes, Types, Windows,
+  System.UITypes,
+  System.Types,
+  System.SyncObjs,
 {$ENDIF}
-  Controls, Graphics, Classes, SysUtils;
+{$if defined(FRAMEWORK_VCL)}
+  {$if not defined(PLATFORM_INDEPENDENT)}
+  WinApi.Windows,
+  {$ifend}
+  VCL.Graphics,
+  VCL.Controls,
+{$elseif defined(FRAMEWORK_FMX)}
+  {$if defined(WINDOWS) and not defined(PLATFORM_INDEPENDENT)}
+  WinApi.Windows,
+  {$ifend}
+  FMX.Graphics,
+  FMX.Controls,
+{$elseif defined(FRAMEWORK_LCL)}
+  Graphics,
+  Controls,
+{$ifend}
+  Classes,
+  SysUtils,
+  GR32_Bindings;
+
+{$if defined(FRAMEWORK_FMX)}
+type
+  TControlCanvas = TCanvas;
+{$ifend}
 
 { Version Control }
-
 const
   Graphics32Version = '3.0';
 
 { 32-bit Color }
-
 type
   PColor32 = ^TColor32;
   TColor32 = type Cardinal;
@@ -256,6 +272,10 @@ const
 function Color32(WinColor: TColor): TColor32; overload;
 function Color32(R, G, B: Byte; A: Byte = $FF): TColor32; overload;
 function Color32(Index: Byte; var Palette: TPalette32): TColor32; overload;
+{$IFNDEF FPC}
+// Note: No overload for TAlphaColor since it would conflict with TColor
+function Color32(const AlphaColor: TAlphaColorRec): TColor32; overload;
+{$ENDIF}
 function Gray32(Intensity: Byte; Alpha: Byte = $FF): TColor32; {$IFDEF USEINLINING} inline; {$ENDIF}
 function WinColor(Color32: TColor32): TColor;
 function ArrayOfColor32(const Colors: array of TColor32): TArrayOfColor32;
@@ -297,12 +317,10 @@ procedure RGBtoHSL(RGB: TColor32; out H, S, L: Byte); overload;
 function HSVtoRGB(H, S, V: Single; A: Integer = 255): TColor32;
 procedure RGBToHSV(Color: TColor32; out H, S, V: Single);
 
-{$IFNDEF PLATFORM_INDEPENDENT}
+{$if (not defined(PLATFORM_INDEPENDENT)) and (not defined(RGBA_FORMAT))}
 // Palette conversion functions
-{$IFNDEF RGBA_FORMAT}
 function WinPalette(const P: TPalette32): HPALETTE;
-{$ENDIF RGBA_FORMAT}
-{$ENDIF}
+{$ifend}
 
 { A fixed-point type }
 
@@ -380,15 +398,21 @@ const
 function Fixed(S: Single): TFixed; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 function Fixed(I: Integer): TFixed; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 
-{ Points }
 
+//------------------------------------------------------------------------------
+//
+//      Point types
+//
+//------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// TPoint
+//------------------------------------------------------------------------------
+// Identical to the Windows POINT structure.
+//------------------------------------------------------------------------------
 type
-{$IFNDEF FPC}
-{$IFNDEF BCB}
-  PPoint = ^TPoint;
-  TPoint = Windows.TPoint;
-{$ENDIF}
-{$ENDIF}
+  TPoint = {$ifndef FPC}System.{$endif}Types.TPoint;
+  PPoint = {$ifndef FPC}System.{$endif}Types.PPoint;
 
   PPointArray = ^TPointArray;
   TPointArray = array [0..0] of TPoint;
@@ -397,33 +421,44 @@ type
   PArrayOfArrayOfPoint = ^TArrayOfArrayOfPoint;
   TArrayOfArrayOfPoint = array of TArrayOfPoint;
 
-  PFloatPoint = ^TFloatPoint;
+
+//------------------------------------------------------------------------------
+// TFloatPoint
+//------------------------------------------------------------------------------
+// Floating point, single precision, point
+// Identical to the RTL Types.TPointF type.
+//------------------------------------------------------------------------------
+type
+{$if defined(HAS_TPOINTF)}
+
+  TFloatPoint = {$ifndef FPC}System.{$endif}Types.TPointF;
+
+{$else}
+
   TFloatPoint = record
     X, Y: TFloat;
-  {$IFDEF SUPPORT_ENHANCED_RECORDS}
   public
-    {$IFNDEF FPC}
-    {$IFDEF COMPILERXE2_UP}
-    constructor Create(P: TPointF); overload;
-    {$ENDIF}
+  {$IFDEF RECORD_CONSTRUCTORS}
     constructor Create(P: TPoint); overload;
     constructor Create(X, Y: Integer); overload;
     constructor Create(X, Y: Single); overload;
-    {$ENDIF}
+  {$ENDIF}
 
     // operator overloads
     class operator Equal(const Lhs, Rhs: TFloatPoint): Boolean;
     class operator NotEqual(const Lhs, Rhs: TFloatPoint): Boolean;
     class operator Add(const Lhs, Rhs: TFloatPoint): TFloatPoint;
     class operator Subtract(const Lhs, Rhs: TFloatPoint): TFloatPoint;
-    {$IFDEF COMPILERXE2_UP}
     class operator Explicit(A: TPointF): TFloatPoint;
     class operator Implicit(A: TPointF): TFloatPoint;
-    {$ENDIF}
 
     class function Zero: TFloatPoint; inline; static;
-  {$ENDIF}
   end;
+
+{$ifend}
+
+  PFloatPoint = ^TFloatPoint;
+
 
   PFloatPointArray = ^TFloatPointArray;
   TFloatPointArray = array [0..0] of TFloatPoint;
@@ -432,20 +467,22 @@ type
   PArrayOfArrayOfFloatPoint = ^TArrayOfArrayOfFloatPoint;
   TArrayOfArrayOfFloatPoint = array of TArrayOfFloatPoint;
 
-  PFixedPoint = ^TFixedPoint;
+
+//------------------------------------------------------------------------------
+// TFixedPoint
+//------------------------------------------------------------------------------
+// Fixed precision point.
+//------------------------------------------------------------------------------
+type
   TFixedPoint = record
     X, Y: TFixed;
-  {$IFDEF SUPPORT_ENHANCED_RECORDS}
   public
-    {$IFNDEF FPC}
-    {$IFDEF COMPILERXE2_UP}
-    constructor Create(P: TPointF); overload;
-    {$ENDIF}
+{$IFDEF RECORD_CONSTRUCTORS}
     constructor Create(P: TFloatPoint); overload;
     constructor Create(X, Y: TFixed); overload;
     constructor Create(X, Y: Integer); overload;
     constructor Create(X, Y: TFloat); overload;
-    {$ENDIF}
+{$ENDIF}
 
     // operator overloads
     class operator Equal(const Lhs, Rhs: TFixedPoint): Boolean;
@@ -454,8 +491,10 @@ type
     class operator Subtract(const Lhs, Rhs: TFixedPoint): TFixedPoint;
 
     class function Zero: TFixedPoint; inline; static;
-  {$ENDIF}
   end;
+
+  PFixedPoint = ^TFixedPoint;
+
   {$NODEFINE TFixedPoint}
 
   PFixedPointArray = ^TFixedPointArray;
@@ -465,7 +504,10 @@ type
   PArrayOfArrayOfFixedPoint = ^TArrayOfArrayOfFixedPoint;
   TArrayOfArrayOfFixedPoint = array of TArrayOfFixedPoint;
 
+
+//------------------------------------------------------------------------------
 // construction and conversion of point types
+//------------------------------------------------------------------------------
 function Point(X, Y: Integer): TPoint; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 function Point(const FP: TFloatPoint): TPoint; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 function Point(const FXP: TFixedPoint): TPoint; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
@@ -477,15 +519,35 @@ function FixedPoint(X, Y: Single): TFixedPoint; overload; {$IFDEF USEINLINING} i
 function FixedPoint(const P: TPoint): TFixedPoint; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 function FixedPoint(const FP: TFloatPoint): TFixedPoint; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 
-{ Rectangles }
 
+//------------------------------------------------------------------------------
+//
+//      Rectangle types
+//
+//------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// TRect
+//------------------------------------------------------------------------------
+// Identical to the Windows RECT structure.
+//------------------------------------------------------------------------------
 type
-{$IFNDEF FPC}
-  PRect = Windows.PRect;
-  TRect = Windows.TRect;
-{$ENDIF}
+  TRect = {$ifndef FPC}System.{$endif}Types.TRect;
+  PRect = {$ifndef FPC}System.{$endif}Types.PRect;
 
-  PFloatRect = ^TFloatRect;
+//------------------------------------------------------------------------------
+// TFloatRect
+//------------------------------------------------------------------------------
+// Single precision, floating point rectangle.
+// Identical to the RTL Types.TRectF type.
+//------------------------------------------------------------------------------
+type
+{$if defined(HAS_TRECTF)}
+
+  TFloatRect = {$ifndef FPC}System.{$endif}Types.TRectF;
+
+{$else}
+
   {$NODEFINE TFloatRect}
 {$IFDEF SupportsBoost}
   (*$HPPEMIT '#include <boost/strong_typedef.hpp>'*)
@@ -500,24 +562,79 @@ type
   (*$HPPEMIT 'struct TFloatRect { float Left, Top, Right, Bottom; }; typedef struct TFloatRect TFloatRect;'*)
   (*$HPPEMIT 'struct TFixedRect { TFixed Left, Top, Right, Bottom; }; typedef struct TFixedRect TFixedRect;'*)
   (*$HPPEMIT '} // namespace Gr32 '*)
+
   TFloatRect = packed record
+  private
+    function GetWidth: TFloat; {$IFDEF USEINLINING} inline; {$ENDIF}
+    procedure SetWidth(const Value: TFloat); {$IFDEF USEINLINING} inline; {$ENDIF}
+    function GetHeight: TFloat; {$IFDEF USEINLINING} inline; {$ENDIF}
+    procedure SetHeight(const Value: TFloat); {$IFDEF USEINLINING} inline; {$ENDIF}
+  public
+    // operator overloads
+    class operator Equal(const Lhs, Rhs: TFloatRect): Boolean; {$IFDEF USEINLINING} inline; {$ENDIF}
+    class operator NotEqual(const Lhs, Rhs: TFloatRect): Boolean; {$IFDEF USEINLINING} inline; {$ENDIF}
+    class operator Implicit(const Source: TRect): TFloatRect; {$IFDEF USEINLINING} inline; {$ENDIF}
+    class operator Explicit(const Source: TFloatRect): TRect; {$IFDEF USEINLINING} inline; {$ENDIF}
+
+    procedure Offset(const DX, DY: Single); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
+    procedure Offset(const Point: TPointF); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
+    procedure Offset(const Point: TPoint); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
+
+    function Contains(const Pt: TPointF): Boolean; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
+    function Contains(const Pt: TPoint): Boolean; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
+    function Contains(const R: TRectF): Boolean; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
+
+    procedure Inflate(const DX, DY: Single); {$IFDEF USEINLINING} inline; {$ENDIF}
+
+    property Width: TFloat read GetWidth write SetWidth;
+    property Height: TFloat read GetHeight write SetHeight;
+
     case Integer of
       0: (Left, Top, Right, Bottom: TFloat);
       1: (TopLeft, BottomRight: TFloatPoint);
   end;
 
+{$ifend}
+
+  PFloatRect = ^TFloatRect;
+
+
+//------------------------------------------------------------------------------
+// TFixedRect
+//------------------------------------------------------------------------------
+// Fixed point rectangle
+//------------------------------------------------------------------------------
   {$NODEFINE PFixedRect}
   PFixedRect = ^TFixedRect;
   {$NODEFINE TFixedRect}
   TFixedRect = packed record
+  private
+    function GetWidth: TFixed; {$IFDEF USEINLINING} inline; {$ENDIF}
+    procedure SetWidth(const Value: TFixed); {$IFDEF USEINLINING} inline; {$ENDIF}
+    function GetHeight: TFixed; {$IFDEF USEINLINING} inline; {$ENDIF}
+    procedure SetHeight(const Value: TFixed); {$IFDEF USEINLINING} inline; {$ENDIF}
+  public
+    class operator Equal(const Lhs, Rhs: TFixedRect): Boolean; {$IFDEF USEINLINING} inline; {$ENDIF}
+    class operator NotEqual(const Lhs, Rhs: TFixedRect): Boolean; {$IFDEF USEINLINING} inline; {$ENDIF}
+    class operator Implicit(const Source: TRect): TFixedRect; {$IFDEF USEINLINING} inline; {$ENDIF}
+    class operator Implicit(const Source: TFloatRect): TFixedRect; {$IFDEF USEINLINING} inline; {$ENDIF}
+    class operator Explicit(const Source: TFixedRect): TFloatRect; {$IFDEF USEINLINING} inline; {$ENDIF}
+    class operator Explicit(const Source: TFixedRect): TRect; {$IFDEF USEINLINING} inline; {$ENDIF}
+
+    property Width: TFixed read GetWidth write SetWidth;
+    property Height: TFixed read GetHeight write SetHeight;
+
     case Integer of
       0: (Left, Top, Right, Bottom: TFixed);
       1: (TopLeft, BottomRight: TFixedPoint);
   end;
 
+//------------------------------------------------------------------------------
+// Rectangle construction/conversion functions
+//------------------------------------------------------------------------------
+type
   TRectRounding = (rrClosest, rrOutside, rrInside);
 
-// Rectangle construction/conversion functions
 function MakeRect(const L, T, R, B: Integer): TRect; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 function MakeRect(const FR: TFloatRect; Rounding: TRectRounding = rrClosest): TRect; overload;
 function MakeRect(const FXR: TFixedRect; Rounding: TRectRounding = rrClosest): TRect; overload;
@@ -530,11 +647,13 @@ function FloatRect(const TopLeft, BottomRight: TFloatPoint): TFloatRect; overloa
 function FloatRect(const ARect: TRect): TFloatRect; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 function FloatRect(const FXR: TFixedRect): TFloatRect; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 
+//------------------------------------------------------------------------------
 // Some basic operations over rectangles
-function IntersectRect(out Dst: TRect; const R1, R2: TRect): Boolean; overload;
-function IntersectRect(out Dst: TFloatRect; const FR1, FR2: TFloatRect): Boolean; overload;
-function UnionRect(out Rect: TRect; const R1, R2: TRect): Boolean; overload;
-function UnionRect(out Rect: TFloatRect; const R1, R2: TFloatRect): Boolean; overload;
+//------------------------------------------------------------------------------
+function IntersectRect(out Dst: TRect; const R1, R2: TRect): Boolean; overload; {$IFDEF USEINLINING} inline; {$ENDIF} // TODO : Semantics differ from Delphi IntersectRect
+function IntersectRect(out Dst: TFloatRect; const FR1, FR2: TFloatRect): Boolean; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
+function UnionRect(out Rect: TRect; const R1, R2: TRect): Boolean; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
+function UnionRect(out Rect: TFloatRect; const R1, R2: TFloatRect): Boolean; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 function EqualRect(const R1, R2: TRect): Boolean; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 function EqualRect(const R1, R2: TFloatRect): Boolean; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 procedure InflateRect(var R: TRect; Dx, Dy: Integer); overload; {$IFDEF USEINLINING} inline; {$ENDIF}
@@ -550,20 +669,14 @@ function PtInRect(const R: TFloatRect; const P: TFloatPoint): Boolean; overload;
 function EqualRectSize(const R1, R2: TRect): Boolean; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 function EqualRectSize(const R1, R2: TFloatRect): Boolean; overload; {$IFDEF USEINLINING} inline; {$ENDIF}
 
+
 type
 { TBitmap32 draw mode }
   TDrawMode = (dmOpaque, dmBlend, dmCustom, dmTransparent);
   TCombineMode = (cmBlend, cmMerge);
-
-  TWrapMode = (wmClamp, wmRepeat, wmMirror);
+  TWrapMode = (wmClamp, wmRepeat, wmMirror{$ifdef GR32_WRAPMODE_REFLECT}, wmReflect{$endif});
   TWrapProc = function(Value, Max: Integer): Integer;
   TWrapProcEx = function(Value, Min, Max: Integer): Integer;
-
-{$IFDEF DEPRECATEDMODE}
-{ Stretch filters }
-  TStretchFilter = (sfNearest, sfDraft, sfLinear, sfCosine, sfSpline,
-    sfLanczos, sfMitchell);
-{$ENDIF}
 
 type
   { TPlainInterfacedPersistent }
@@ -609,8 +722,8 @@ type
     property Modified: boolean read FModified;
   public
     procedure BeforeDestruction; override;
-    procedure BeginUpdate; {$IFDEF USEINLINING} inline; {$ENDIF}
-    procedure EndUpdate; {$IFDEF USEINLINING} inline; {$ENDIF}
+    procedure BeginUpdate; virtual;
+    procedure EndUpdate; virtual;
     procedure Changed; virtual;
 
     procedure BeginLockUpdate; {$IFDEF USEINLINING} inline; {$ENDIF}
@@ -626,6 +739,9 @@ type
   strict private
     FLockCount: Integer;
   strict protected
+    // FLock *must* be a Win32 RTL_CRITICAL_SECTION as it is referenced directly
+    // via a pointer by TFont.OwnerCriticalSection in the backend.
+    // Absolutely wonderfull design Embarcadero!
     {$IFDEF FPC}
     FLock: TCriticalSection;
     {$ELSE}
@@ -719,9 +835,6 @@ type
     FStippleCounter: Single;
     FStipplePattern: TArrayOfColor32;
     FStippleStep: Single;
-{$IFDEF DEPRECATEDMODE}
-    FStretchFilter: TStretchFilter;
-{$ENDIF}
     FOnPixelCombine: TPixelCombineEvent;
     FOnAreaChanged: TAreaChangedEvent;
     FOldOnAreaChanged: TAreaChangedEvent;
@@ -739,9 +852,6 @@ type
     procedure SetDrawMode(Value: TDrawMode);
     procedure SetWrapMode(Value: TWrapMode);
     procedure SetMasterAlpha(Value: Cardinal);
-{$IFDEF DEPRECATEDMODE}
-    procedure SetStretchFilter(Value: TStretchFilter);
-{$ENDIF}
     procedure SetClipRect(const Value: TRect);
     procedure SetResampler(AResampler: TCustomResampler);
     function GetResamplerClassName: string;
@@ -762,8 +872,6 @@ type
     RasterX, RasterY: Integer;
     RasterXF, RasterYF: TFixed;
     procedure ChangeSize(var Width, Height: Integer; NewWidth, NewHeight: Integer); override;
-    procedure CopyMapTo(Dst: TCustomBitmap32); virtual;
-    procedure CopyPropertiesTo(Dst: TCustomBitmap32); virtual;
     function  Equal(B: TCustomBitmap32): Boolean;
     procedure ReadData(Stream: TStream); virtual;
     procedure WriteData(Stream: TStream); virtual;
@@ -779,14 +887,19 @@ type
 {$ENDIF}
 
   protected
+    procedure CopyMapTo(Dst: TCustomBitmap32); virtual;
+    procedure CopyPropertiesTo(Dst: TCustomBitmap32); virtual;
+
     procedure AssignTo(Dst: TPersistent); override;
     procedure DefineProperties(Filer: TFiler); override;
 
   protected
     function LoadFromBMPStream(Stream: TStream; Size: Int64): boolean;
     function LoadFromDIBStream(Stream: TStream; Size: Int64): boolean;
-    procedure SaveToDIBStream(Stream: TStream; SaveTopDown: Boolean = False); overload;
-    procedure SaveToDIBStream(Stream: TStream; SaveTopDown: Boolean; InfoHeaderVersion: TInfoHeaderVersion); overload;
+    procedure SaveToDIBStream(Stream: TStream; SaveTopDown: Boolean = False; IncludeColorTable: boolean = False); overload;
+    procedure SaveToDIBStream(Stream: TStream; SaveTopDown: Boolean; InfoHeaderVersion: TInfoHeaderVersion; IncludeColorTable: boolean = False); overload;
+    procedure SaveToStream(Stream: TStream; SaveTopDown: Boolean; InfoHeaderVersion: TInfoHeaderVersion; IncludeColorTable: boolean); overload;
+    procedure SaveToFile(const FileName: string; SaveTopDown: Boolean; InfoHeaderVersion: TInfoHeaderVersion; IncludeColorTable: boolean); overload;
 
   protected
     procedure SET_T256(X, Y: Integer; C: TColor32);
@@ -986,9 +1099,6 @@ type
     property WrapMode: TWrapMode read FWrapMode write SetWrapMode default wmClamp;
     property MasterAlpha: Cardinal read FMasterAlpha write SetMasterAlpha default $FF;
     property OuterColor: TColor32 read FOuterColor write FOuterColor default 0;
-{$IFDEF DEPRECATEDMODE}
-    property StretchFilter: TStretchFilter read FStretchFilter write SetStretchFilter default sfNearest;
-{$ENDIF}
     property ResamplerClassName: string read GetResamplerClassName write SetResamplerClassName;
     property Resampler: TCustomResampler read FResampler write SetResampler;
     property OnChange;
@@ -1021,6 +1131,7 @@ type
     procedure SetBackend(const ABackend: TCustomBackend); override;
 
     procedure HandleChanged; virtual;
+  protected
     procedure CopyPropertiesTo(Dst: TCustomBitmap32); override;
   public
     class function GetPlatformBackendClass: TCustomBackendClass; override;
@@ -1041,11 +1152,9 @@ type
     procedure TileTo(hDst: HDC; const DstRect, SrcRect: TRect; MaxTileSize: integer = 1024); overload;
 {$ENDIF}
 
-{$IFDEF COMPILER2009_UP}
     procedure DrawTo(Dst: TControlCanvas; DstX: Integer = 0; DstY: Integer = 0); overload;
     procedure DrawTo(Dst: TControlCanvas; const DstRect, SrcRect: TRect); overload;
     procedure TileTo(Dst: TControlCanvas; const DstRect, SrcRect: TRect; MaxTileSize: integer = 1024); overload;
-{$ENDIF}
 
     procedure UpdateFont;
     procedure Textout(X, Y: Integer; const Text: string); overload;
@@ -1054,7 +1163,8 @@ type
     function  TextExtent(const Text: string): TSize;
     function  TextHeight(const Text: string): Integer;
     function  TextWidth(const Text: string): Integer;
-    procedure RenderText(X, Y: Integer; const Text: string; AALevel: Integer; Color: TColor32);
+    procedure RenderText(X, Y: Integer; const Text: string; AALevel: Integer; Color: TColor32); overload; deprecated 'Use RenderText(...; AntiAlias: boolean) or TCanvas32.RenderText(...) instead';
+    procedure RenderText(X, Y: Integer; const Text: string; Color: TColor32; AntiAlias: boolean = True); overload;
 
     property  Canvas: TCanvas read GetCanvas;
     function  CanvasAllocated: Boolean;
@@ -1163,6 +1273,16 @@ var
 var
   // Default file format version of BMPs written by SaveToStream/SaveToFile.
   DefaultBitmapHeaderVersion: TCustomBitmap32.TInfoHeaderVersion = InfoHeaderVersion4;
+  // By default, do not include a color table in BI_BITFIELDS BMPs written by SaveToStream/SaveToFile.
+  DefaultBitmapIncludeColorTable: boolean = False;
+
+//------------------------------------------------------------------------------
+//
+//      Function bindings
+//
+//------------------------------------------------------------------------------
+function GeneralRegistry: TFunctionRegistry;
+
 
 resourcestring
   RCStrUnmatchedReferenceCounting = 'Unmatched reference counting.';
@@ -1172,10 +1292,16 @@ resourcestring
 implementation
 
 uses
-  Math,
+{$if defined(FRAMEWORK_VCL)}
+  Vcl.Clipbrd,
+{$elseif defined(FRAMEWORK_FMX)}
+  Fmx.Clipboard,
+{$elseif defined(FRAMEWORK_LCL)}
   Clipbrd,
+{$ifend}
   GR32_Blend,
   GR32_LowLevel,
+  GR32_System,
   GR32_Math,
   GR32_Resamplers,
   GR32_Containers,
@@ -1183,7 +1309,11 @@ uses
   GR32_Clipboard,
   GR32_Backends,
   GR32_Backends_Generic,
-{$IFDEF FPC}
+{$if defined(FRAMEWORK_VCL)}
+  GR32_Backends_VCL,
+{$elseif defined(FRAMEWORK_FMX)}
+  GR32_Backends_FMX,
+{$elseif defined(FRAMEWORK_LCL)}
   {$IFDEF LCLWin32}
     GR32_Backends_LCL_Win,
   {$ENDIF}
@@ -1196,10 +1326,7 @@ uses
   {$IFDEF LCLCustomDrawn}
     GR32_Backends_LCL_CustomDrawn,
   {$ENDIF}
-{$ELSE}
-  GR32_Backends_VCL,
-{$ENDIF}
-  GR32_VectorUtils,
+{$ifend}
   GR32.ImageFormats,
   GR32.ImageFormats.Default;
 
@@ -1233,14 +1360,14 @@ type
   // Each new version adds to the one before it.
   TBitmapInfoHeader = packed record
     biSize: DWORD;
-    biWidth: Longint;
-    biHeight: Longint;
+    biWidth: Integer;
+    biHeight: Integer;
     biPlanes: Word;
     biBitCount: Word;
     biCompression: DWORD;
     biSizeImage: DWORD;
-    biXPelsPerMeter: Longint;
-    biYPelsPerMeter: Longint;
+    biXPelsPerMeter: Integer;
+    biYPelsPerMeter: Integer;
     biClrUsed: DWORD;
     biClrImportant: DWORD;
   end;
@@ -1278,14 +1405,14 @@ type
   // V4 header: BITMAPV4HEADER
   TBitmapV4Header = packed record
     bV4Size: DWORD;
-    bV4Width: Longint;
-    bV4Height: Longint;
+    bV4Width: Integer;
+    bV4Height: Integer;
     bV4Planes: Word;
     bV4BitCount: Word;
     bV4V4Compression: DWORD;
     bV4SizeImage: DWORD;
-    bV4XPelsPerMeter: Longint;
-    bV4YPelsPerMeter: Longint;
+    bV4XPelsPerMeter: Integer;
+    bV4YPelsPerMeter: Integer;
     bV4ClrUsed: DWORD;
     bV4ClrImportant: DWORD;
     bV4RedMask: DWORD;
@@ -1302,14 +1429,14 @@ type
   // V5 header: BITMAPV5HEADER
   TBitmapV5Header = packed record
     bV5Size: DWORD;
-    bV5Width: Longint;
-    bV5Height: Longint;
+    bV5Width: Integer;
+    bV5Height: Integer;
     bV5Planes: Word;
     bV5BitCount: Word;
     bV5Compression: DWORD;
     bV5SizeImage: DWORD;
-    bV5XPelsPerMeter: Longint;
-    bV5YPelsPerMeter: Longint;
+    bV5XPelsPerMeter: Integer;
+    bV5YPelsPerMeter: Integer;
     bV5ClrUsed: DWORD;
     bV5ClrImportant: DWORD;
     bV5RedMask: DWORD;
@@ -1354,7 +1481,7 @@ type
   TGraphicAccess = class(TGraphic);
 
 const
-  ZERO_RECT: TRect = (Left: 0; Top: 0; Right: 0; Bottom: 0);
+  ZERO_RECT: TRect = (Left: 0; Top: 0; Right: 0; Bottom: 0) deprecated 'Use Default(TRect) instead';
 
 { Color construction and conversion functions }
 
@@ -1401,6 +1528,16 @@ function Color32(Index: Byte; var Palette: TPalette32): TColor32; overload;
 begin
   Result := Palette[Index];
 end;
+
+{$IFNDEF FPC}
+function Color32(const AlphaColor: TAlphaColorRec): TColor32;
+begin
+  TColor32Entry(Result).A := AlphaColor.A;
+  TColor32Entry(Result).R := AlphaColor.R;
+  TColor32Entry(Result).G := AlphaColor.G;
+  TColor32Entry(Result).B := AlphaColor.B;
+end;
+{$ENDIF}
 
 function Gray32(Intensity: Byte; Alpha: Byte = $FF): TColor32;
 begin
@@ -1500,7 +1637,7 @@ begin
 {$ENDIF RGBA_FORMAT}
 end;
 
-procedure Color32ToRGBAMem(var Color32: TColor32); {$IFDEF USEINLINING} inline; {$ENDIF}
+procedure Color32ToRGBAMem(var Color32: TColor32);
 begin
 {$IFNDEF RGBA_FORMAT}
   SwapRedBlueMem(Color32);
@@ -1516,7 +1653,7 @@ begin
 {$ENDIF RGBA_FORMAT}
 end;
 
-procedure BGRAToColor32Mem(var BGRA: DWORD); {$IFDEF USEINLINING} inline; {$ENDIF}
+procedure BGRAToColor32Mem(var BGRA: DWORD);
 begin
 {$IFDEF RGBA_FORMAT}
   SwapRedBlueMem(TColor32(BGRA));
@@ -1532,7 +1669,7 @@ begin
 {$ENDIF RGBA_FORMAT}
 end;
 
-procedure RGBAToColor32mem(var RGBA: DWORD); {$IFDEF USEINLINING} inline; {$ENDIF}
+procedure RGBAToColor32mem(var RGBA: DWORD);
 begin
 {$IFNDEF RGBA_FORMAT}
   SwapRedBlueMem(TColor32(RGBA));
@@ -1925,6 +2062,9 @@ end;
 
 { Points }
 
+//------------------------------------------------------------------------------
+// TPoint
+//------------------------------------------------------------------------------
 function Point(X, Y: Integer): TPoint;
 begin
   Result.X := X;
@@ -1943,6 +2083,10 @@ begin
   Result.Y := FixedRound(FXP.Y);
 end;
 
+
+//------------------------------------------------------------------------------
+// TFloatPoint
+//------------------------------------------------------------------------------
 function FloatPoint(X, Y: Single): TFloatPoint;
 begin
   Result.X := X;
@@ -1964,21 +2108,13 @@ begin
   end;
 end;
 
-{$IFDEF SUPPORT_ENHANCED_RECORDS}
-{$IFNDEF FPC}
+{$if not defined(HAS_TPOINTF)}
+{$IFDEF RECORD_CONSTRUCTORS}
 constructor TFloatPoint.Create(P: TPoint);
 begin
   Self.X := P.X;
   Self.Y := P.Y;
 end;
-
-{$IFDEF COMPILERXE2_UP}
-constructor TFloatPoint.Create(P: TPointF);
-begin
-  Self.X := P.X;
-  Self.Y := P.Y;
-end;
-{$ENDIF}
 
 constructor TFloatPoint.Create(X, Y: Integer);
 begin
@@ -2016,7 +2152,6 @@ begin
   Result.Y := Lhs.Y - Rhs.Y;
 end;
 
-{$IFDEF COMPILERXE2_UP}
 class operator TFloatPoint.Explicit(A: TPointF): TFloatPoint;
 begin
   Result.X := A.X;
@@ -2028,23 +2163,18 @@ begin
   Result.X := A.X;
   Result.Y := A.Y;
 end;
-{$ENDIF}
 
 class function TFloatPoint.Zero: TFloatPoint;
 begin
-  Result.X := 0;
-  Result.Y := 0;
+  Result := Default(TFloatPoint);
 end;
+{$ifend}
 
-{$IFNDEF FPC}
-{$IFDEF COMPILERXE2_UP}
-constructor TFixedPoint.Create(P: TPointF);
-begin
-  Self.X := Fixed(P.X);
-  Self.Y := Fixed(P.Y);
-end;
-{$ENDIF}
 
+//------------------------------------------------------------------------------
+// TFixedPoint
+//------------------------------------------------------------------------------
+{$IFDEF RECORD_CONSTRUCTORS}
 constructor TFixedPoint.Create(P: TFloatPoint);
 begin
   Self.X := Fixed(P.X);
@@ -2095,10 +2225,8 @@ end;
 
 class function TFixedPoint.Zero: TFixedPoint;
 begin
-  Result.X := 0;
-  Result.Y := 0;
+  Result := Default(TFixedPoint);
 end;
-{$ENDIF}
 
 function FixedPoint(X, Y: Integer): TFixedPoint; overload;
 begin
@@ -2144,10 +2272,10 @@ begin
     case Rounding of
       rrClosest:
         begin
-          Result.Left := Round(Left);
-          Result.Top := Round(Top);
-          Result.Right := Round(Right);
-          Result.Bottom := Round(Bottom);
+          Result.Left := System.Round(Left);
+          Result.Top := System.Round(Top);
+          Result.Right := System.Round(Right);
+          Result.Bottom := System.Round(Bottom);
         end;
 
       rrInside:
@@ -2282,12 +2410,30 @@ end;
 
 function IntersectRect(out Dst: TRect; const R1, R2: TRect): Boolean;
 begin
-  if R1.Left >= R2.Left then Dst.Left := R1.Left else Dst.Left := R2.Left;
-  if R1.Right <= R2.Right then Dst.Right := R1.Right else Dst.Right := R2.Right;
-  if R1.Top >= R2.Top then Dst.Top := R1.Top else Dst.Top := R2.Top;
-  if R1.Bottom <= R2.Bottom then Dst.Bottom := R1.Bottom else Dst.Bottom := R2.Bottom;
+  if R1.Left >= R2.Left then
+    Dst.Left := R1.Left
+  else
+    Dst.Left := R2.Left;
+
+  if R1.Right <= R2.Right then
+    Dst.Right := R1.Right
+  else
+    Dst.Right := R2.Right;
+
+  if R1.Top >= R2.Top then
+    Dst.Top := R1.Top
+  else
+    Dst.Top := R2.Top;
+
+  if R1.Bottom <= R2.Bottom then
+    Dst.Bottom := R1.Bottom
+  else
+    Dst.Bottom := R2.Bottom;
+
   Result := (Dst.Right >= Dst.Left) and (Dst.Bottom >= Dst.Top);
-  if not Result then Dst := ZERO_RECT;
+
+  if not Result then
+    Dst := Default(TRect);
 end;
 
 function IntersectRect(out Dst: TFloatRect; const FR1, FR2: TFloatRect): Boolean;
@@ -2297,7 +2443,8 @@ begin
   Dst.Top    := Math.Max(FR1.Top,    FR2.Top);
   Dst.Bottom := Math.Min(FR1.Bottom, FR2.Bottom);
   Result := (Dst.Right >= Dst.Left) and (Dst.Bottom >= Dst.Top);
-  if not Result then FillLongword(Dst, 4, 0);
+  if not Result then
+    Dst := Default(TFloatRect);
 end;
 
 function IsRectEmpty(const R: TRect): Boolean;
@@ -2315,13 +2462,21 @@ begin
   Rect := R1;
   if not IsRectEmpty(R2) then
   begin
-    if R2.Left < R1.Left then Rect.Left := R2.Left;
-    if R2.Top < R1.Top then Rect.Top := R2.Top;
-    if R2.Right > R1.Right then Rect.Right := R2.Right;
-    if R2.Bottom > R1.Bottom then Rect.Bottom := R2.Bottom;
+    if R2.Left < R1.Left then
+      Rect.Left := R2.Left;
+
+    if R2.Top < R1.Top then
+      Rect.Top := R2.Top;
+
+    if R2.Right > R1.Right then
+      Rect.Right := R2.Right;
+
+    if R2.Bottom > R1.Bottom then
+      Rect.Bottom := R2.Bottom;
   end;
   Result := not IsRectEmpty(Rect);
-  if not Result then Rect := ZERO_RECT;
+  if not Result then
+    Rect := Default(TRect);
 end;
 
 function UnionRect(out Rect: TFloatRect; const R1, R2: TFloatRect): Boolean;
@@ -2329,13 +2484,21 @@ begin
   Rect := R1;
   if not IsRectEmpty(R2) then
   begin
-    if R2.Left < R1.Left then Rect.Left := R2.Left;
-    if R2.Top < R1.Top then Rect.Top := R2.Top;
-    if R2.Right > R1.Right then Rect.Right := R2.Right;
-    if R2.Bottom > R1.Bottom then Rect.Bottom := R2.Bottom;
+    if R2.Left < R1.Left then
+      Rect.Left := R2.Left;
+
+    if R2.Top < R1.Top then
+      Rect.Top := R2.Top;
+
+    if R2.Right > R1.Right then
+      Rect.Right := R2.Right;
+
+    if R2.Bottom > R1.Bottom then
+      Rect.Bottom := R2.Bottom;
   end;
   Result := not IsRectEmpty(Rect);
-  if not Result then FillLongword(Rect, 4, 0);
+  if not Result then
+    Rect := Default(TFloatRect);
 end;
 
 function EqualRect(const R1, R2: TRect): Boolean;
@@ -2418,6 +2581,145 @@ begin
   Result := (P.X >= R.Left) and (P.X < R.Right) and
     (P.Y >= R.Top) and (P.Y < R.Bottom);
 end;
+
+//------------------------------------------------------------------------------
+// TFloatRect
+//------------------------------------------------------------------------------
+{$if not defined(HAS_TRECTF)}
+class operator TFloatRect.Equal(const Lhs, Rhs: TFloatRect): Boolean;
+begin
+  // Compare as two 64-bit values
+  Result := (PInt64(@Lhs.TopLeft)^ = PInt64(@Rhs.TopLeft)^) and (PInt64(@Lhs.BottomRight)^ = PInt64(@Rhs.BottomRight)^);
+end;
+
+class operator TFloatRect.Explicit(const Source: TFloatRect): TRect;
+begin
+  Result := MakeRect(Source);
+end;
+
+class operator TFloatRect.Implicit(const Source: TRect): TFloatRect;
+begin
+  Result := FloatRect(Source);
+end;
+
+class operator TFloatRect.NotEqual(const Lhs, Rhs: TFloatRect): Boolean;
+begin
+  Result := not(Lhs = Rhs);
+end;
+
+procedure TFloatRect.Offset(const Point: TPointF);
+begin
+  OffsetRect(Self, Point.X, Point.Y);
+end;
+
+procedure TFloatRect.Offset(const Point: TPoint);
+begin
+  OffsetRect(Self, Point.X, Point.Y);
+end;
+
+procedure TFloatRect.Offset(const DX, DY: Single);
+begin
+  OffsetRect(Self, DX, DY);
+end;
+
+function TFloatRect.Contains(const R: TRectF): Boolean;
+begin
+  Result :=
+    (Self.Left <= R.Left) and (Self.Right >= R.Right) and
+    (Self.Top <= R.Top) and (Self.Bottom >= R.Bottom);
+end;
+
+function TFloatRect.Contains(const Pt: TPointF): Boolean;
+begin
+  Result := PtInRect(Self, Pt);
+end;
+
+function TFloatRect.Contains(const Pt: TPoint): Boolean;
+begin
+  Result := PtInRect(Self, Pt);
+end;
+
+procedure TFloatRect.Inflate(const DX, DY: Single);
+begin
+  InflateRect(Self, DX, DY);
+end;
+
+function TFloatRect.GetHeight: TFloat;
+begin
+  Result := Self.Bottom - Self.Top;
+end;
+
+function TFloatRect.GetWidth: TFloat;
+begin
+  Result := Self.Right - Self.Left;
+end;
+
+procedure TFloatRect.SetHeight(const Value: TFloat);
+begin
+  Self.Bottom := Self.Top + Value;
+end;
+
+procedure TFloatRect.SetWidth(const Value: TFloat);
+begin
+  Self.Right := Self.Left + Value;
+end;
+{$ifend}
+
+
+//------------------------------------------------------------------------------
+// TFixedRect
+//------------------------------------------------------------------------------
+class operator TFixedRect.Equal(const Lhs, Rhs: TFixedRect): Boolean;
+begin
+  // Compare as two 64-bit values
+  Result := (PInt64(@Lhs.TopLeft)^ = PInt64(@Rhs.TopLeft)^) and (PInt64(@Lhs.BottomRight)^ = PInt64(@Rhs.BottomRight)^);
+end;
+
+class operator TFixedRect.NotEqual(const Lhs, Rhs: TFixedRect): Boolean;
+begin
+  Result := not(Lhs = Rhs);
+end;
+
+class operator TFixedRect.Explicit(const Source: TFixedRect): TFloatRect;
+begin
+  Result := FloatRect(Source);
+end;
+
+class operator TFixedRect.Explicit(const Source: TFixedRect): TRect;
+begin
+  Result := MakeRect(Source);
+end;
+
+class operator TFixedRect.Implicit(const Source: TFloatRect): TFixedRect;
+begin
+  Result := FixedRect(Source);
+end;
+
+class operator TFixedRect.Implicit(const Source: TRect): TFixedRect;
+begin
+  Result := FixedRect(Source);
+end;
+
+function TFixedRect.GetHeight: TFixed;
+begin
+  Result := Self.Bottom - Self.Top;
+end;
+
+function TFixedRect.GetWidth: TFixed;
+begin
+  Result := Self.Right - Self.Left;
+end;
+
+procedure TFixedRect.SetHeight(const Value: TFixed);
+begin
+  Self.Bottom := Self.Top + Value;
+end;
+
+procedure TFixedRect.SetWidth(const Value: TFixed);
+begin
+  Self.Right := Self.Left + Value;
+end;
+
 
 { TSimpleInterfacedPersistent }
 
@@ -2507,7 +2809,13 @@ begin
   Assert(FUpdateCount > 0, 'Unpaired TThreadPersistent.EndUpdate');
   if (FUpdateCount = 1) and (FModified) then
   begin
-    DoChanged;
+    try
+      DoChanged;
+    except
+      // Prevent exception from breaking batching
+      Dec(FUpdateCount);
+      raise;
+    end;
     FModified := False;
   end;
   Dec(FUpdateCount);
@@ -2533,12 +2841,15 @@ end;
 
 constructor TThreadPersistent.Create;
 begin
+  inherited Create;
   InitializeCriticalSection(FLock);
+  // FLock := TCriticalSection.Create;
 end;
 
 destructor TThreadPersistent.Destroy;
 begin
   DeleteCriticalSection(FLock);
+  // FLock.Free;
   inherited;
 end;
 
@@ -2546,11 +2857,13 @@ procedure TThreadPersistent.Lock;
 begin
   InterlockedIncrement(FLockCount);
   EnterCriticalSection(FLock);
+  // FLock.Enter;
 end;
 
 procedure TThreadPersistent.Unlock;
 begin
   LeaveCriticalSection(FLock);
+  // FLock.Leave;
   InterlockedDecrement(FLockCount);
 end;
 
@@ -2623,9 +2936,15 @@ begin
   if Source is TCustomMap then
     Result := SetSize(TCustomMap(Source).Width, TCustomMap(Source).Height)
   else
+{$ifndef FRAMEWORK_FMX}
   if Source is TGraphic then
     Result := SetSize(TGraphic(Source).Width, TGraphic(Source).Height)
   else
+{$else}
+  if Source is TBitmap then
+    Result := SetSize(TBitmap(Source).Width, TBitmap(Source).Height)
+  else
+{$endif}
   if Source is TControl then
     Result := SetSize(TControl(Source).Width, TControl(Source).Height)
   else
@@ -2794,6 +3113,8 @@ end;
 
 procedure TCustomBitmap32.ChangeSize(var Width, Height: Integer; NewWidth, NewHeight: Integer);
 begin
+  if (Int64(Width) * Int64(Height) * SizeOf(DWORD) > MaxInt) then
+    raise EOutOfResources.CreateFmt('Unsupported bitmap size: %d x %d x 4 = %.8X', [Width, Height, Int64(Width) * Int64(Height) * SizeOf(DWORD)]);
   FBackend.ChangeSize(Width, Height, NewWidth, NewHeight);
 end;
 
@@ -2889,9 +3210,6 @@ begin
   Dst.MasterAlpha := MasterAlpha;
   Dst.OuterColor := OuterColor;
 
-{$IFDEF DEPRECATEDMODE}
-  Dst.StretchFilter := StretchFilter;
-{$ENDIF}
   Dst.ResamplerClassName := ResamplerClassName;
   if (Dst.Resampler <> nil) and (Resampler <> nil) then
     Dst.Resampler.Assign(Resampler);
@@ -3036,22 +3354,24 @@ var
 begin
   if not FMeasuringMode then
   begin
-    {$IFDEF FPC}
-    P := Pointer(Bits);
+    // Shift the pointer to 'alpha' component of the first pixel
+    P := pointer(@PColor32Entry(Bits).A);
+
+{$IFDEF FPC}
+
     for I := 0 to Width * Height - 1 do
     begin
-      P^[3] := AlphaValue;
-      Inc(P, 4);
+      P[0] := AlphaValue;
+      Inc(P, SizeOf(TColor32));
     end
-    {$ELSE}
-    P := Pointer(Bits);
-    Inc(P, 3); //shift the pointer to 'alpha' component of the first pixel
+
+{$ELSE}
 
     I := Width * Height;
 
     if I > 16 then
     begin
-      I := I * 4 - 64;
+      I := I * SizeOf(TColor32) - 16*SizeOf(TColor32);
       Inc(P, I);
 
       //16x enrolled loop
@@ -3077,24 +3397,25 @@ begin
       until I > 0;
 
       //eventually remaining bits
-      Dec(I, 64);
+      Dec(I, 16*SizeOf(TColor32));
       while I < 0 do
       begin
-        P^[I + 64] := AlphaValue;
-        Inc(I, 4);
+        P^[I + 16*SizeOf(TColor32)] := AlphaValue;
+        Inc(I, SizeOf(TColor32));
       end;
     end
     else
     begin
       Dec(I);
-      I := I * 4;
+      I := I * SizeOf(TColor32);
       while I >= 0 do
       begin
         P^[I] := AlphaValue;
-        Dec(I, 4);
+        Dec(I, SizeOf(TColor32));
       end;
     end;
-    {$ENDIF}
+
+{$ENDIF}
   end;
   Changed;
 end;
@@ -3161,10 +3482,10 @@ begin
   if FCombineMode = cmBlend then
   begin
     A := C shr 24;  // opacity
-    celx := A * GAMMA_ENCODING_TABLE[flrx xor $FF];
-    cely := GAMMA_ENCODING_TABLE[flry xor $FF];
-    flrx := A * GAMMA_ENCODING_TABLE[flrx];
-    flry := GAMMA_ENCODING_TABLE[flry];
+    celx := A * (flrx xor $FF);
+    cely := flry xor $FF;
+    flrx := A * flrx;
+    flry := flry;
 
     CombineMem(C, P^, celx * cely shr 16); Inc(P);
     CombineMem(C, P^, flrx * cely shr 16); Inc(P, FWidth);
@@ -3173,10 +3494,10 @@ begin
   end
   else
   begin
-    celx := GAMMA_ENCODING_TABLE[flrx xor $FF];
-    cely := GAMMA_ENCODING_TABLE[flry xor $FF];
-    flrx := GAMMA_ENCODING_TABLE[flrx];
-    flry := GAMMA_ENCODING_TABLE[flry];
+    celx := flrx xor $FF;
+    cely := flry xor $FF;
+    flrx := flrx;
+    flry := flry;
 
     CombineMem(MergeReg(C, P^), P^, celx * cely shr 8); Inc(P);
     CombineMem(MergeReg(C, P^), P^, flrx * cely shr 8); Inc(P, FWidth);
@@ -3214,10 +3535,10 @@ begin
   if FCombineMode = cmBlend then
   begin
     A := C shr 24;  // opacity
-    celx := A * GAMMA_ENCODING_TABLE[flrx xor $FF];
-    cely := GAMMA_ENCODING_TABLE[flry xor $FF];
-    flrx := A * GAMMA_ENCODING_TABLE[flrx];
-    flry := GAMMA_ENCODING_TABLE[flry];
+    celx := A * (flrx xor $FF);
+    cely := flry xor $FF;
+    flrx := A * flrx;
+    flry := flry;
 
     if (X >= FClipRect.Left) and (Y >= FClipRect.Top) and
        (X < FClipRect.Right - 1) and (Y < FClipRect.Bottom - 1) then
@@ -3238,10 +3559,10 @@ begin
   end
   else
   begin
-    celx := GAMMA_ENCODING_TABLE[flrx xor $FF];
-    cely := GAMMA_ENCODING_TABLE[flry xor $FF];
-    flrx := GAMMA_ENCODING_TABLE[flrx];
-    flry := GAMMA_ENCODING_TABLE[flry];
+    celx := flrx xor $FF;
+    cely := flry xor $FF;
+    flrx := flrx;
+    flry := flry;
 
     if (X >= FClipRect.Left) and (Y >= FClipRect.Top) and
        (X < FClipRect.Right - 1) and (Y < FClipRect.Bottom - 1) then
@@ -3342,32 +3663,19 @@ var
   Pos: Integer;
 begin
   Pos := (X shr 8) + (Y shr 8) * FWidth;
-  Result := Interpolator(GAMMA_ENCODING_TABLE[X and $FF xor $FF],
-                         GAMMA_ENCODING_TABLE[Y and $FF xor $FF],
+  Result := Interpolator(X and $FF xor $FF,
+                         Y and $FF xor $FF,
                          @Bits[Pos], @Bits[Pos + FWidth]);
 end;
 
 function TCustomBitmap32.GET_TS256(X, Y: Integer): TColor32;
-var
-  Width256, Height256: Integer;
 begin
-  if (X >= F256ClipRect.Left) and (Y >= F256ClipRect.Top) then
-  begin
-    Width256 := (FClipRect.Right - 1) shl 8;
-    Height256 := (FClipRect.Bottom - 1) shl 8;
-
-    if (X < Width256) and (Y < Height256) then
-      Result := GET_T256(X,Y)
-    else if (X = Width256) and (Y <= Height256) then
-      // We're exactly on the right border: no need to interpolate.
-      Result := Pixel[FClipRect.Right - 1, Y shr 8]
-    else if (X <= Width256) and (Y = Height256) then
-      // We're exactly on the bottom border: no need to interpolate.
-      Result := Pixel[X shr 8, FClipRect.Bottom - 1]
-    else
-      Result := FOuterColor;
-  end
+  if (X >= F256ClipRect.Left) and (Y >= F256ClipRect.Top) and
+     (X < F256ClipRect.Right-256) and (Y < F256ClipRect.Bottom-256) then
+    // (x+1, y+1) is inside cliprect
+    Result := GET_T256(X,Y)
   else
+    // Outside cliprect
     Result := FOuterColor;
 end;
 
@@ -3427,9 +3735,9 @@ asm
           CALL    TCustomBitmap32.GET_TS256
 {$IFNDEF OMIT_MMX}
           CMP     MMX_ACTIVE.Integer, $00
-          JZ      @Exit
-          DB      $0F, $77               /// EMMS
-@Exit:
+          JZ      @skip_emms
+          EMMS
+@skip_emms:
 {$ENDIF}
 
 {$IFDEF TARGET_x64}
@@ -3541,8 +3849,50 @@ begin
     Exit;
 
   FStippleCounter := FStippleCounter + Delta;
-  FStippleCounter := FStippleCounter - Floor(FStippleCounter / L) * L;
+  FStippleCounter := Wrap(FStippleCounter, L);
 end;
+
+{$if defined(PUREPASCAL) or defined(OMIT_SSE2)}
+
+// Just a duplicate of the function below so we at least can get it inlined
+function FastPrevWeight(Value: TFloat; PrevIndex: Cardinal): Cardinal; {$IFDEF USEINLINING} inline; {$ENDIF}
+begin
+  Result := Round($FF * (Value - PrevIndex));
+end;
+
+{$else}
+
+var FastPrevWeight: function(Value: TFloat; PrevIndex: Cardinal): Cardinal;
+
+function FastPrevWeight_Pas(Value: TFloat; PrevIndex: Cardinal): Cardinal;
+begin
+  Result := Round($FF * (Value - PrevIndex));
+end;
+
+function FastPrevWeight_SSE41(Value: TFloat; PrevIndex: Cardinal): Cardinal; {$IFDEF FPC} assembler; nostackframe; {$ENDIF}
+// Note: roundss is a SSE4.1 instruction
+const
+  ROUND_MODE = $08 + $00; // $00=Round, $01=Floor, $02=Ceil, $03=Trunc
+const
+  Float255 : TFloat = 255.0;
+asm
+{$if defined(TARGET_x86)}
+        MOVSS   xmm0, Value
+{$ifend}
+        CVTSI2SS xmm1, PrevIndex
+
+        SUBSS   xmm0, xmm1
+{$if (not defined(FPC)) or (not defined(TARGET_X64))}
+        MULSS   xmm0, Float255
+{$else}
+        MULSS   xmm0, [rip+Float255].DWORD
+{$ifend}
+
+        ROUNDSS xmm0, xmm0, ROUND_MODE
+        CVTSS2SI eax, xmm0
+end;
+
+{$ifend}
 
 function TCustomBitmap32.GetStippleColor: TColor32;
 var
@@ -3557,17 +3907,18 @@ begin
     Result := clBlack32;
     Exit;
   end;
-  FStippleCounter := Wrap(FStippleCounter, L);
-  {$IFDEF FPC}
-  PrevIndex := Trunc(FStippleCounter);
-  {$ELSE}
-  PrevIndex := Round(FStippleCounter - 0.5);
-  {$ENDIF}
-  PrevWeight := $FF - Round($FF * (FStippleCounter - PrevIndex));
-  if PrevIndex < 0 then FStippleCounter := L - 1;
+  WrapMem(FStippleCounter, L);
+  // Was: PrevIndex := Round(FStippleCounter - 0.5);
+  PrevIndex := FastTrunc(FStippleCounter);
+  // Was: PrevWeight= $FF - Round($FF * (FStippleCounter - PrevIndex));
+  PrevWeight := $FF - FastPrevWeight(FStippleCounter, PrevIndex);
+  if PrevIndex < 0 then
+    FStippleCounter := L - 1;
   NextIndex := PrevIndex + 1;
-  if NextIndex >= L then NextIndex := 0;
-  if PrevWeight = $FF then Result := FStipplePattern[PrevIndex]
+  if NextIndex >= L then
+    NextIndex := 0;
+  if PrevWeight = $FF then
+    Result := FStipplePattern[PrevIndex]
   else
   begin
     Result := CombineReg(
@@ -3584,7 +3935,7 @@ begin
   if not FMeasuringMode then
     FillLongword(Bits[X1 + Y * Width], X2 - X1 + 1, Value);
 
-  Changed(MakeRect(X1, Y, X2+1, Y+1));
+  Changed(MakeRect(X1, Y, X2+1, Y+1)); // Don't indicate that this is a line (AREAINFO_LINE). We want it treated as a rectangle.
 end;
 
 procedure TCustomBitmap32.HorzLineS(X1, Y, X2: Integer; Value: TColor32);
@@ -3615,7 +3966,7 @@ begin
     EMMS;
   end;
 
-  Changed(MakeRect(X1, Y, X2+1, Y+1));
+  Changed(MakeRect(X1, Y, X2+1, Y+1)); // Don't indicate that this is a line (AREAINFO_LINE). We want it treated as a rectangle.
 end;
 
 procedure TCustomBitmap32.HorzLineTS(X1, Y, X2: Integer; Value: TColor32);
@@ -3682,7 +4033,7 @@ begin
       end;
     end;
 
-    Changed(MakeRect(X1, Y, X2+1, Y+1));
+    Changed(MakeRect(X1, Y, X2+1, Y+1)); // Don't indicate that this is a line (AREAINFO_LINE). We want it treated as a rectangle.
 
     if (not FMeasuringMode) and (N > 0) then
       AdvanceStippleCounter(N);
@@ -3717,10 +4068,10 @@ begin
     Count := X2F - X1F - 1;
     if Wy > 0 then
     begin
-      CombineMem(Value, PDst^, GAMMA_ENCODING_TABLE[(Wy * Wx1) shr 24]);
+      CombineMem(Value, PDst^, (Wy * Wx1) shr 24);
       Inc(PDst);
 
-      Wt := GAMMA_ENCODING_TABLE[Wy shr 8];
+      Wt := Wy shr 8;
 
       for I := 0 to Count - 1 do
       begin
@@ -3728,7 +4079,7 @@ begin
         Inc(PDst);
       end;
 
-      CombineMem(Value, PDst^, GAMMA_ENCODING_TABLE[(Wy * Wx2) shr 24]);
+      CombineMem(Value, PDst^, (Wy * Wx2) shr 24);
     end;
 
     PDst := PixelPtr[X1F, YF + 1];
@@ -3736,10 +4087,10 @@ begin
     Wy := Wy xor $ffff;
     if Wy > 0 then
     begin
-      CombineMem(Value, PDst^, GAMMA_ENCODING_TABLE[(Wy * Wx1) shr 24]);
+      CombineMem(Value, PDst^, (Wy * Wx1) shr 24);
       Inc(PDst);
 
-      Wt := GAMMA_ENCODING_TABLE[Wy shr 8];
+      Wt := Wy shr 8;
 
       for I := 0 to Count - 1 do
       begin
@@ -3747,7 +4098,7 @@ begin
         Inc(PDst);
       end;
 
-      CombineMem(Value, PDst^, GAMMA_ENCODING_TABLE[(Wy * Wx2) shr 24]);
+      CombineMem(Value, PDst^, (Wy * Wx2) shr 24);
     end;
 
     EMMS;
@@ -3801,7 +4152,7 @@ begin
 
   end;
 
-  Changed(MakeRect(X, Y1, X+1, Y2+1));
+  Changed(MakeRect(X, Y1, X+1, Y2+1)); // Don't indicate that this is a line (AREAINFO_LINE). We want it treated as a rectangle.
 end;
 
 procedure TCustomBitmap32.VertLineS(X, Y1, Y2: Integer; Value: TColor32);
@@ -3830,7 +4181,7 @@ begin
     EMMS;
   end;
 
-  Changed(MakeRect(X, Y1, X+1, Y2+1));
+  Changed(MakeRect(X, Y1, X+1, Y2+1)); // Don't indicate that this is a line (AREAINFO_LINE). We want it treated as a rectangle.
 end;
 
 procedure TCustomBitmap32.VertLineTS(X, Y1, Y2: Integer; Value: TColor32);
@@ -3897,7 +4248,7 @@ begin
       end;
     end;
 
-    Changed(MakeRect(X, Y1, X+1, Y2+1));
+    Changed(MakeRect(X, Y1, X+1, Y2+1)); // Don't indicate that this is a line (AREAINFO_LINE). We want it treated as a rectangle.
 
     if (not FMeasuringMode) and (N > 0) then
       AdvanceStippleCounter(N);
@@ -3932,10 +4283,10 @@ begin
     Count := Y2F - Y1F - 1;
     if Wx > 0 then
     begin
-      CombineMem(Value, PDst^, GAMMA_ENCODING_TABLE[(Wx * Wy1) shr 24]);
+      CombineMem(Value, PDst^, (Wx * Wy1) shr 24);
       Inc(PDst, FWidth);
 
-      Wt := GAMMA_ENCODING_TABLE[Wx shr 8];
+      Wt := Wx shr 8;
 
       for I := 0 to Count - 1 do
       begin
@@ -3943,7 +4294,7 @@ begin
         Inc(PDst, FWidth);
       end;
 
-      CombineMem(Value, PDst^, GAMMA_ENCODING_TABLE[(Wx * Wy2) shr 24]);
+      CombineMem(Value, PDst^, (Wx * Wy2) shr 24);
     end;
 
     PDst := PixelPtr[XF + 1, Y1F];
@@ -3951,10 +4302,10 @@ begin
     Wx := Wx xor $ffff;
     if Wx > 0 then
     begin
-      CombineMem(Value, PDst^, GAMMA_ENCODING_TABLE[(Wx * Wy1) shr 24]);
+      CombineMem(Value, PDst^, (Wx * Wy1) shr 24);
       Inc(PDst, FWidth);
 
-      Wt := GAMMA_ENCODING_TABLE[Wx shr 8];
+      Wt := Wx shr 8;
 
       for I := 0 to Count - 1 do
       begin
@@ -3962,7 +4313,7 @@ begin
         Inc(PDst, FWidth);
       end;
 
-      CombineMem(Value, PDst^, GAMMA_ENCODING_TABLE[(Wx * Wy2) shr 24]);
+      CombineMem(Value, PDst^, (Wx * Wy2) shr 24);
     end;
 
     EMMS;
@@ -4682,6 +5033,60 @@ begin
   LineX(Fixed(X1), Fixed(Y1), Fixed(X2), Fixed(Y2), Value, L);
 end;
 
+// Note:
+// ClipLine has been copied from GR32_VectorUtils to avoid referencing that unit here
+// since that would prevent inlining in GR32_VectorUtils due to
+// H2456 Inline function '%s' has not been expanded because contained unit '%s' uses compiling unit '%s'
+function ClipLine(var X1, Y1, X2, Y2: Integer; MinX, MinY, MaxX, MaxY: Integer): Boolean;
+var
+  C1, C2: Integer;
+  V: Integer;
+begin
+  { Get edge codes }
+  C1 := Ord(X1 < MinX) + Ord(X1 > MaxX) shl 1 + Ord(Y1 < MinY) shl 2 + Ord(Y1 > MaxY) shl 3;
+  C2 := Ord(X2 < MinX) + Ord(X2 > MaxX) shl 1 + Ord(Y2 < MinY) shl 2 + Ord(Y2 > MaxY) shl 3;
+
+  if ((C1 and C2) = 0) and ((C1 or C2) <> 0) then
+  begin
+    if (C1 and 12) <> 0 then
+    begin
+      if C1 < 8 then V := MinY else V := MaxY;
+      Inc(X1, MulDiv(V - Y1, X2 - X1, Y2 - Y1));
+      Y1 := V;
+      C1 := Ord(X1 < MinX) + Ord(X1 > MaxX) shl 1;
+    end;
+
+    if (C2 and 12) <> 0 then
+    begin
+      if C2 < 8 then V := MinY else V := MaxY;
+      Inc(X2, MulDiv(V - Y2, X2 - X1, Y2 - Y1));
+      Y2 := V;
+      C2 := Ord(X2 < MinX) + Ord(X2 > MaxX) shl 1;
+    end;
+
+    if ((C1 and C2) = 0) and ((C1 or C2) <> 0) then
+    begin
+      if C1 <> 0 then
+      begin
+        if C1 = 1 then V := MinX else V := MaxX;
+        Inc(Y1, MulDiv(V - X1, Y2 - Y1, X2 - X1));
+        X1 := V;
+        C1 := 0;
+      end;
+
+      if C2 <> 0 then
+      begin
+        if C2 = 1 then V := MinX else V := MaxX;
+        Inc(Y2, MulDiv(V - X2, Y2 - Y1, X2 - X1));
+        X2 := V;
+        C2 := 0;
+      end;
+    end;
+  end;
+
+  Result := (C1 or C2) = 0;
+end;
+
 procedure TCustomBitmap32.LineXS(X1, Y1, X2, Y2: TFixed; Value: TColor32; L: Boolean);
 var
   n, i: Integer;
@@ -4960,10 +5365,10 @@ begin
         Inc(Y1, Sy);
         CI := EC shr 8;
         P := @Bits[X1 + Y1 * Width];
-        BlendMemEx(Value, P^, GAMMA_ENCODING_TABLE[CI xor $FF]);
+        BlendMemEx(Value, P^, CI xor $FF);
 
         Inc(P, Sx);
-        BlendMemEx(Value, P^, GAMMA_ENCODING_TABLE[CI]);
+        BlendMemEx(Value, P^, CI);
       end;
     end else // DY <= DX
     begin
@@ -4983,11 +5388,11 @@ begin
         Inc(X1, Sx);
         CI := EC shr 8;
         P := @Bits[X1 + Y1 * Width];
-        BlendMemEx(Value, P^, GAMMA_ENCODING_TABLE[CI xor $FF]);
+        BlendMemEx(Value, P^, CI xor $FF);
 
         if Sy = 1 then
           Inc(P, Width) else Dec(P, Width);
-        BlendMemEx(Value, P^, GAMMA_ENCODING_TABLE[CI]);
+        BlendMemEx(Value, P^, CI);
       end;
     end;
 
@@ -5173,7 +5578,7 @@ begin
         while xd <> term do
         begin
           Inc(xd, -Sx);
-          BlendMemEx(Value, Bits[D1^ + D2^ * Width], GAMMA_ENCODING_TABLE[ED shr 8]);
+          BlendMemEx(Value, Bits[D1^ + D2^ * Width], ED shr 8);
           Dec(ED, EA);
         end;
 
@@ -5272,10 +5677,10 @@ begin
       begin
         CI := EC shr 8;
         P := @Bits[D1^ + D2^ * Width];
-        BlendMemEx(Value, P^, GAMMA_ENCODING_TABLE[CI xor $FF]);
+        BlendMemEx(Value, P^, CI xor $FF);
 
         Inc(P, PI);
-        BlendMemEx(Value, P^, GAMMA_ENCODING_TABLE[CI]);
+        BlendMemEx(Value, P^, CI);
 
         // check for overflow and jump to next line...
         D := EC;
@@ -5294,7 +5699,7 @@ begin
     begin
       while xd <> rem do
       begin
-        BlendMemEx(Value, Bits[D1^ + D2^ * Width], GAMMA_ENCODING_TABLE[EC shr 8 xor $FF]);
+        BlendMemEx(Value, Bits[D1^ + D2^ * Width], EC shr 8 xor $FF);
         Inc(EC, EA);
         Inc(xd, Sx);
       end;
@@ -5702,6 +6107,7 @@ var
   Channel: TColor32Component;
   Value, NewValue: DWORD;
   Padding: integer;
+  DataSize: integer;
   ScanlineRow: PColor32Array;
 const
 {$IFNDEF RGBA_FORMAT}
@@ -5753,10 +6159,6 @@ begin
   if (Stream.Read(BitmapHeader.InfoHeader.biWidth, ChunkSize) <> ChunkSize) then
     exit;
 
-  // We only support BI_RGB and BI_BITFIELDS compression
-  if (BitmapHeader.InfoHeader.biCompression <> BI_RGB) and (BitmapHeader.InfoHeader.biCompression <> BI_BITFIELDS) then
-    exit;
-
   // We only support 24-bit and 32-bit bitmaps
   if not (BitmapHeader.InfoHeader.biBitCount in [24, 32]) then
     exit;
@@ -5769,21 +6171,45 @@ begin
   if (BitmapHeader.InfoHeader.biWidth < 0) then
     BitmapHeader.InfoHeader.biWidth := -BitmapHeader.InfoHeader.biWidth;
 
-  // Validate compression and fetch RGBA masks
+  // Pad input rows to 32 bits
+  Padding := (SizeOf(DWORD) - (((BitmapHeader.InfoHeader.biBitCount shr 3) * BitmapHeader.InfoHeader.biWidth) and (SizeOf(DWORD)-1))) and (SizeOf(DWORD)-1);
+  DataSize := ((BitmapHeader.InfoHeader.biBitCount shr 3) * BitmapHeader.InfoHeader.biWidth + Padding) * Abs(BitmapHeader.InfoHeader.biHeight);
+  Dec(Size, DataSize);
+
+  if (BitmapHeader.InfoHeader.biCompression = BI_RGB) then
+  begin
+    // Skip color table so we're ready to read the pixel data.
+    // Note: We ignore the pixel offset stored in the header since this
+    // value is often incorrect.
+    if (BitmapHeader.InfoHeader.biClrUsed > 0) then
+    begin
+      Dec(Size, BitmapHeader.InfoHeader.biClrUsed * SizeOf(DWORD));
+      if (Size < 0) then
+        exit;
+      Stream.Seek(BitmapHeader.InfoHeader.biClrUsed * SizeOf(DWORD), soCurrent);
+    end;
+  end else
   if (BitmapHeader.InfoHeader.biCompression = BI_BITFIELDS) then
   begin
-    // Reject invalid 24-bit bitfields
+    // BI_BITFIELDS is only valid for 16 and 32 bit count
     if BitmapHeader.InfoHeader.biBitCount = 24 then
       exit;
 
-    // For versions > v1 the RGB color mask is part of the header so it has already
-    // been read as part of the header. For version = v1 it is stored just after
-    // the header, before the color table.
-    // Note: It seems that the above is not always true in practice; The three mask values
-    // can be present even when they are already part of the header. For example a copy/paste
-    // of a V5 DIB can cause this to happen. Apparently this is a bug in Windows. Since
-    // Windows seems able to work around it we'll try to do that too; If there's exactly 12
-    // bytes too many when we're about to read the pixel data, then we skip 12 bytes ahead.
+    // For versions > v1 the header contains a color mask.
+    // For BI_BITFIELDS the header is additionally followed by a color table with 3
+    // values that can also be interpreted as a color mask.
+    // Because the BI_BITFIELDS layout has been so poorly documented different
+    // interpretations of it has lead to some implementations including the color
+    // table and some excluding it.
+    // This is true even within Windows and its utilities. In particular the Windows
+    // clipboard's handling of CF_DIBV5 appears to produce both variations depending on
+    // various circumstances.
+    //
+    // Since Windows seems able to work around the two different variations we'll try to
+    // do that too; If there's exactly 12 bytes missing when we're about to read the
+    // color table, then we simply skip reading it.
+
+    // For version 1 we always need to get the mask from the color table.
     if (InfoHeaderVersion = InfoHeaderVersion1) then
     begin
       // Read the RGB mask into the v2 header RGB mask fields
@@ -5794,6 +6220,28 @@ begin
 
       if (Stream.Read(BitmapHeader.V2Header.bV2RedMask, ChunkSize) <> ChunkSize) then
         exit;
+    end else
+    begin
+      // Read the color table if it's there.
+
+      // Work around BI_BITFIELDS DIBs that lack the color table after the header;
+      // If there's exactly 12 bytes missing then we assume that these are the missing
+      // color table and ignore it.
+      ChunkSize := 3 * SizeOf(DWORD);
+      if (Size >= ChunkSize) then
+      begin
+        Dec(Size, ChunkSize);
+        // The color table is there but do we need to actually read it?
+        // If the header color masks contains values then we don't need the values in
+        // the color table so we just skip past them. Otherwise we read them into the
+        // header color mask fields.
+        if (BitmapHeader.V2Header.bV2RedMask = 0) and (BitmapHeader.V2Header.bV2GreenMask = 0) and (BitmapHeader.V2Header.bV2BlueMask = 0) then
+        begin
+          if (Stream.Read(BitmapHeader.V2Header.bV2RedMask, ChunkSize) <> ChunkSize) then
+            exit;
+        end else
+          Stream.Seek(ChunkSize, soFromCurrent);
+      end;
     end;
 
     // Check if RGBA mask is present and values are valid
@@ -5835,40 +6283,15 @@ begin
         (BitmapHeader.V3Header.bV3AlphaMask = Masks[ccAlpha]) then
         BitmapHeader.InfoHeader.biCompression := BI_RGB;
     end;
-  end;
-
-  // Skip color table so we're ready to read the pixel data
-  // Note: We ignore the pixel offset stored in the header since this
-  // value is often incorrect.
-  if (BitmapHeader.InfoHeader.biClrUsed > 0) then
-  begin
-    Dec(Size, BitmapHeader.InfoHeader.biClrUsed * SizeOf(DWORD));
-    if (Size < 0) then
-      exit;
-    Stream.Seek(BitmapHeader.InfoHeader.biClrUsed * SizeOf(DWORD), soCurrent);
-  end;
-
-  // Pad input rows to 32 bits
-  Padding := (SizeOf(DWORD) - (((BitmapHeader.InfoHeader.biBitCount shr 3) * BitmapHeader.InfoHeader.biWidth) and (SizeOf(DWORD)-1))) and (SizeOf(DWORD)-1);
+  end else
+    // We only support BI_RGB and BI_BITFIELDS compression
+    exit;
 
   // Make sure there's enough data left for the pixels
-  Dec(Size, ((BitmapHeader.InfoHeader.biBitCount shr 3) * BitmapHeader.InfoHeader.biWidth + Padding) * Abs(BitmapHeader.InfoHeader.biHeight));
   if (Size < 0) then
     exit;
 
-  // Work around BMPs with an extra color mask after the header:
-  // If there's exactly 12 bytes too many then we assume that these are an extra
-  // color mask and skip it.
-  // For example the Windows resource compiler will add these 12 bytes to the header
-  // of RT_BITMAP resources. This goes for both BI_RGB and BI_BITFIELDS.
-  if (InfoHeaderVersion >= InfoHeaderVersion1) then
-  begin
-    ChunkSize := 3 * SizeOf(DWORD);
-    if (Size = ChunkSize) then
-      Stream.Seek(ChunkSize, soFromCurrent);
-  end;
-
-  // Set bitmap size and allocate bit pixel data so we can read into it
+  // Set bitmap size and allocate pixel data so we can read into it
   SetSize(BitmapHeader.InfoHeader.biWidth, Abs(BitmapHeader.InfoHeader.biHeight));
 
   // Check whether the bitmap is saved top-down or bottom-up:
@@ -6012,45 +6435,57 @@ begin
 end;
 
 procedure TCustomBitmap32.SaveToStream(Stream: TStream; SaveTopDown: Boolean; InfoHeaderVersion: TInfoHeaderVersion);
-var
-  FileHeader: TBitmapFileHeader;
-  BitmapSize: Integer;
-  HeaderSize: integer;
 begin
-  BitmapSize := Width * Height * SizeOf(DWORD);
+  SaveToStream(Stream, SaveTopDown, InfoHeaderVersion, DefaultBitmapIncludeColorTable);
+end;
 
-  case InfoHeaderVersion of
-    InfoHeaderVersion1: HeaderSize := SizeOf(TBitmapInfoHeader);// 40
-    InfoHeaderVersion2: HeaderSize := SizeOf(TBitmapV2Header);  // 52
-    InfoHeaderVersion3: HeaderSize := SizeOf(TBitmapV3Header);  // 56
-    InfoHeaderVersion4: HeaderSize := SizeOf(TBitmapV4Header);  // 108
-    InfoHeaderVersion5: HeaderSize := SizeOf(TBitmapV5Header);  // 124
-  else
-    raise Exception.Create('Invalid header version');
-  end;
+procedure TCustomBitmap32.SaveToStream(Stream: TStream; SaveTopDown: Boolean; InfoHeaderVersion: TInfoHeaderVersion; IncludeColorTable: boolean);
+var
+  StartPos: Int64;
+  SavePos: Int64;
+  FileHeader: TBitmapFileHeader;
+begin
+  StartPos := Stream.Position;
 
-  FileHeader.bfType := $4D42; // Magic bytes for Windows Bitmap
-  FileHeader.bfSize := BitmapSize + SizeOf(TBitmapFileHeader) + HeaderSize; // Size of file
+  // Skip past file header. We will write it once the DIB has been written.
+  Stream.Seek(SizeOf(TBitmapFileHeader), soFromCurrent);
+
+  // Save the DIB
+  SaveToDIBStream(Stream, SaveTopDown, InfoHeaderVersion, IncludeColorTable);
+  SavePos := Stream.Position;
+
+  // Calculate size, store in header, rewind and write the file header
+  FileHeader.bfType := $4D42; // Magic bytes for Windows Bitmap: 'BM'
+  FileHeader.bfSize := Stream.Position - StartPos;
   FileHeader.bfReserved1 := 0;
   FileHeader.bfReserved2 := 0;
-  // The offset, in bytes, from the beginning of the BITMAPFILEHEADER structure to the bitmap bits.
-  FileHeader.bfOffBits := SizeOf(TBitmapFileHeader) + HeaderSize;
+  // Most application doesn't care about the value in bfOffBits but some do and
+  // for those (e.g. Gimp, MS Paint) it appears to be important that we store a
+  // correct value. Without a correct value the applications are, for some reason,
+  // unable to handle BI_BITFIELDS BMPs with a color table.
+  FileHeader.bfOffBits := SizeOf(TBitmapFileHeader);
+  case InfoHeaderVersion of
+    InfoHeaderVersion1: Inc(FileHeader.bfOffBits, SizeOf(TBitmapInfoHeader));// 40
+    InfoHeaderVersion2: Inc(FileHeader.bfOffBits, SizeOf(TBitmapV2Header));  // 52
+    InfoHeaderVersion3: Inc(FileHeader.bfOffBits, SizeOf(TBitmapV3Header));  // 56
+    InfoHeaderVersion4: Inc(FileHeader.bfOffBits, SizeOf(TBitmapV4Header));  // 108
+    InfoHeaderVersion5: Inc(FileHeader.bfOffBits, SizeOf(TBitmapV5Header));  // 124
+  end;
+  if (IncludeColorTable) and (InfoHeaderVersion >= InfoHeaderVersion3) then
+    Inc(FileHeader.bfOffBits, 3*SizeOf(DWORD));
 
-  // Note that the above offsets and sizes doesn't include a potential BI_BITFIELDS
-  // color mask. This doesn't appear to be a problem since nobody (wisely) uses the
-  // values in these fields anyway.
-
+  Stream.Position := StartPos;
   Stream.WriteBuffer(FileHeader, SizeOf(FileHeader));
 
-  SaveToDIBStream(Stream, SaveTopDown, InfoHeaderVersion);
+  Stream.Position := SavePos;
 end;
 
-procedure TCustomBitmap32.SaveToDIBStream(Stream: TStream; SaveTopDown: Boolean);
+procedure TCustomBitmap32.SaveToDIBStream(Stream: TStream; SaveTopDown: Boolean; IncludeColorTable: boolean);
 begin
-  SaveToDIBStream(Stream, SaveTopDown, DefaultBitmapHeaderVersion);
+  SaveToDIBStream(Stream, SaveTopDown, DefaultBitmapHeaderVersion, IncludeColorTable);
 end;
 
-procedure TCustomBitmap32.SaveToDIBStream(Stream: TStream; SaveTopDown: Boolean; InfoHeaderVersion: TInfoHeaderVersion);
+procedure TCustomBitmap32.SaveToDIBStream(Stream: TStream; SaveTopDown: Boolean; InfoHeaderVersion: TInfoHeaderVersion; IncludeColorTable: boolean);
 type
   TDIBHeader = packed record
   case TInfoHeaderVersion of
@@ -6061,32 +6496,37 @@ type
     InfoHeaderVersion5: (V5Header: TBitmapV5Header);            // 124
   end;
 
-{$IFDEF FPC}
 const
+  LCS_sRGB = $73524742; // 'sRGB'
+{$IFDEF FPC}
   LCS_GM_IMAGES = 4;
 {$ENDIF}
+
 var
-  HeaderSize: Cardinal;
   Header: TDIBHeader;
   i: Integer;
   W: Integer;
+{$ifdef RGBA_FORMAT}
+  Colors: array of TColor32;
+  Line: PColor32Array;
+{$endif RGBA_FORMAT}
 begin
+  Header := Default(TDIBHeader);
+
   // Determine info header size based on header version.
   // Note: Formats lower than InfoHeaderVersion3 doesn't formally
   // support alpha but that doesn't mean that we can't store the alpha
   // anyway.
   case InfoHeaderVersion of
-    InfoHeaderVersion1: HeaderSize := SizeOf(TBitmapInfoHeader);// 40
-    InfoHeaderVersion2: HeaderSize := SizeOf(TBitmapV2Header);  // 52
-    InfoHeaderVersion3: HeaderSize := SizeOf(TBitmapV3Header);  // 56
-    InfoHeaderVersion4: HeaderSize := SizeOf(TBitmapV4Header);  // 108
-    InfoHeaderVersion5: HeaderSize := SizeOf(TBitmapV5Header);  // 124
+    InfoHeaderVersion1: Header.InfoHeader.biSize := SizeOf(TBitmapInfoHeader);// 40
+    InfoHeaderVersion2: Header.InfoHeader.biSize := SizeOf(TBitmapV2Header);  // 52
+    InfoHeaderVersion3: Header.InfoHeader.biSize := SizeOf(TBitmapV3Header);  // 56
+    InfoHeaderVersion4: Header.InfoHeader.biSize := SizeOf(TBitmapV4Header);  // 108
+    InfoHeaderVersion5: Header.InfoHeader.biSize := SizeOf(TBitmapV5Header);  // 124
   else
-    raise Exception.Create('Invalid header version');
+    raise Exception.Create('Invalid DIB header version');
   end;
 
-  Header := Default(TDIBHeader);
-  Header.InfoHeader.biSize := HeaderSize;
   Header.InfoHeader.biWidth := Width;
 
   if SaveTopDown then
@@ -6107,14 +6547,10 @@ begin
   begin
     // First header version to formally support Alpha. But this requires that we use
     // BI_BITFIELDS compression.
+    // Note though that Windows Explorer only recongnizes alpha in v4 and v5.
     Header.InfoHeader.biCompression := BI_BITFIELDS; // Switch from BI_RGB
     Header.V3Header.bV3AlphaMask := $FF000000;
   end;
-
-  if (InfoHeaderVersion < InfoHeaderVersion2) and (Header.InfoHeader.biCompression = BI_BITFIELDS) then
-    // The Version 1 header doesn't include the mask so expand
-    // the header size so the mask will be written.
-    Inc(HeaderSize, 12);
 
   if (Header.InfoHeader.biCompression = BI_BITFIELDS) then
   begin
@@ -6126,12 +6562,28 @@ begin
   end;
 
   if (InfoHeaderVersion >= InfoHeaderVersion4) then
-    Header.V4Header.bV4CSType := $73524742;// LCS_sRGB
+    Header.V4Header.bV4CSType := LCS_sRGB;
 
   if (InfoHeaderVersion >= InfoHeaderVersion5) then
     Header.V5Header.bV5Intent := LCS_GM_IMAGES;
 
-  Stream.WriteBuffer(Header, HeaderSize);
+  Stream.WriteBuffer(Header, Header.InfoHeader.biSize);
+
+  // Write the color table.
+  // This just contains the same values as first three fields of the header color mask.
+  //
+  // Note that by default we never write the color table.
+  // Empirical evidence has shown that, for most consistent results, neither bitmap files
+  // (i.e. BMPs) nor DIBs (such as clipboard data) should contain the color table.
+  //
+  // The current MSDN documentation state that the color tables must always be present
+  // for BI_BITFIELDS. However investigation of the relevant source code has revealed
+  // that different parts of Windows has widely different implementations of the format;
+  // The clipboard appears to always expect a color table while parts of GDI expect one
+  // for v3 but not for v4 and v5 DIBs - or vice versa.
+  //
+  if (IncludeColorTable) and (Header.InfoHeader.biCompression = BI_BITFIELDS) then
+    Stream.WriteBuffer(Header.V2Header.bV2RedMask, 3*SizeOf(DWORD)); // Actually, 3*SizeOf(TRGBQuad)
 
   // Pixel array
 {$IFNDEF RGBA_FORMAT}
@@ -6148,17 +6600,17 @@ begin
       Stream.WriteBuffer(ScanLine[i]^, W);
   end;
 {$ELSE RGBA_FORMAT}
-  // Bits are in RGBA format but we need to write BGRA
-  if SaveTopDown then
+  // Bits are in RGBA format but we need to write BGRA.
+  SetLength(Colors, Width);
+  for i := 0 to Height-1 do
   begin
-    for i := 0 to Width*Height-1 do
-      Stream.Write(SwapRedBlue(Bits[i]), SizeOf(TColor32));
-  end
-  else
-  begin
-    for i := Height - 1 downto 0 do
-      for W := 0 to Width-1 do
-        Stream.Write(SwapRedBlue(ScanLine[i][W]), SizeOf(TColor32));
+    if SaveTopDown then
+      Line := ScanLine[i]
+    else
+      Line := ScanLine[Height-i-1];
+    for W := 0 to Width-1 do
+      Colors[W] := SwapRedBlue(Line[W]);
+    Stream.WriteBuffer(Colors[0], Width*SizeOf(DWORD));
   end;
 {$ENDIF RGBA_FORMAT}
 end;
@@ -6226,12 +6678,18 @@ begin
 end;
 
 procedure TCustomBitmap32.SaveToFile(const FileName: string; SaveTopDown: Boolean; InfoHeaderVersion: TInfoHeaderVersion);
+begin
+  SaveToFile(FileName, SaveTopDown, InfoHeaderVersion, DefaultBitmapIncludeColorTable);
+end;
+
+procedure TCustomBitmap32.SaveToFile(const FileName: string; SaveTopDown: Boolean; InfoHeaderVersion: TInfoHeaderVersion; IncludeColorTable: boolean);
 var
   FileStream: TFileStream;
 begin
+  // The purpose of this extra overload is primarily to allow the unit test to generate BMPs with/without a color table
   FileStream := TFileStream.Create(Filename, fmCreate);
   try
-    SaveToStream(FileStream, SaveTopDown, InfoHeaderVersion);
+    SaveToStream(FileStream, SaveTopDown, InfoHeaderVersion, IncludeColorTable);
   finally
     FileStream.Free;
   end;
@@ -6375,33 +6833,6 @@ begin
     Changed;
   end;
 end;
-
-{$IFDEF DEPRECATEDMODE}
-procedure TCustomBitmap32.SetStretchFilter(Value: TStretchFilter);
-begin
-  if FStretchFilter <> Value then
-  begin
-    FStretchFilter := Value;
-
-    case FStretchFilter of
-      sfNearest: TNearestResampler.Create(Self);
-      sfDraft:   TDraftResampler.Create(Self);
-      sfLinear:  TLinearResampler.Create(Self);
-    else
-      TKernelResampler.Create(Self);
-      with FResampler as TKernelResampler do
-        case FStretchFilter of
-          sfCosine: Kernel := TCosineKernel.Create;
-          sfSpline: Kernel := TSplineKernel.Create;
-          sfLanczos: Kernel := TLanczosKernel.Create;
-          sfMitchell: Kernel := TMitchellKernel.Create;
-        end;
-    end;
-
-    Changed;
-  end;
-end;
-{$ENDIF}
 
 procedure TCustomBitmap32.Roll(Dx, Dy: Integer; FillBack: Boolean; FillColor: TColor32);
 var
@@ -6567,32 +6998,35 @@ begin
       Dst := Tmp;
     end else
       Tmp := nil;
-
-    Dst.BeginUpdate;
     try
 
-      Dst.SetSize(Height, Width);
-      I := 0;
-      for Y := 0 to Height - 1 do
-      begin
-        J := Height - 1 - Y;
-        for X := 0 to Width - 1 do
+      Dst.BeginUpdate;
+      try
+
+        Dst.SetSize(Height, Width);
+        I := 0;
+        for Y := 0 to Height - 1 do
         begin
-          Dst.Bits[J] := Bits[I];
-          Inc(I);
-          Inc(J, Height);
+          J := Height - 1 - Y;
+          for X := 0 to Width - 1 do
+          begin
+            Dst.Bits[J] := Bits[I];
+            Inc(I);
+            Inc(J, Height);
+          end;
         end;
+
+        Dst.Changed;
+      finally
+        Dst.EndUpdate;
       end;
 
-      if Tmp <> nil then
+    finally
+      if (Tmp <> nil) then
       begin
         Tmp.CopyMapTo(Self);
         Tmp.Free;
       end;
-
-      Dst.Changed;
-    finally
-      Dst.EndUpdate;
     end;
   end else
   if (Dst = nil) or (Dst = Self) then
@@ -6651,32 +7085,35 @@ begin
       Dst := Tmp;
     end else
       Tmp := nil;
-
-    Dst.BeginUpdate;
     try
 
-      Dst.SetSize(Height, Width);
-      I := 0;
-      for Y := 0 to Height - 1 do
-      begin
-        J := (Width - 1) * Height + Y;
-        for X := 0 to Width - 1 do
+      Dst.BeginUpdate;
+      try
+
+        Dst.SetSize(Height, Width);
+        I := 0;
+        for Y := 0 to Height - 1 do
         begin
-          Dst.Bits[J] := Bits[I];
-          Inc(I);
-          Dec(J, Height);
+          J := (Width - 1) * Height + Y;
+          for X := 0 to Width - 1 do
+          begin
+            Dst.Bits[J] := Bits[I];
+            Inc(I);
+            Dec(J, Height);
+          end;
         end;
+
+        Dst.Changed;
+      finally
+        Dst.EndUpdate;
       end;
 
-      if Tmp <> nil then
+    finally
+      if (Tmp <> nil) then
       begin
         Tmp.CopyMapTo(Self);
         Tmp.Free;
       end;
-
-      Dst.Changed;
-    finally
-      Dst.EndUpdate;
     end;
   end else
   if (Dst = nil) or (Dst = Self) then
@@ -6730,7 +7167,7 @@ end;
 
 procedure TCustomBitmap32.Changed;
 begin
-  if ((LockUpdateCount = 0) or FMeasuringMode) and Assigned(FOnAreaChanged) then
+  if ((LockUpdateCount = 0) or FMeasuringMode) and Assigned(FOnAreaChanged) and (not Empty) then
     FOnAreaChanged(Self, BoundsRect, AREAINFO_RECT);
 
   if not FMeasuringMode then
@@ -6739,7 +7176,7 @@ end;
 
 procedure TCustomBitmap32.Changed(const Area: TRect; const Info: Cardinal);
 begin
-  if ((LockUpdateCount = 0) or FMeasuringMode) and Assigned(FOnAreaChanged) then
+  if ((LockUpdateCount = 0) or FMeasuringMode) and Assigned(FOnAreaChanged) and (not Empty) then
     FOnAreaChanged(Self, Area, Info);
 
   if not FMeasuringMode then
@@ -6851,11 +7288,15 @@ end;
 
 class function TBitmap32.GetPlatformBackendClass: TCustomBackendClass;
 begin
-{$IFDEF FPC}
-  Result := TLCLBackend;
-{$ELSE}
+{$if defined(FRAMEWORK_VCL)}
   Result := TGDIBackend;
-{$ENDIF}
+{$elseif defined(FRAMEWORK_FMX)}
+  Result := TMemoryBackend;
+{$elseif defined(FRAMEWORK_LCL)}
+  Result := TLCLBackend;
+{$else}
+  Result := inherited;
+{$ifend}
 end;
 
 function TBitmap32.GetFont: TFont;
@@ -6965,7 +7406,6 @@ begin
   end;
 end;
 
-{$IFDEF COMPILER2009_UP}
 procedure TBitmap32.DrawTo(Dst: TControlCanvas; DstX, DstY: Integer);
 begin
   DrawTo(Dst.Handle, DstX, DstY);
@@ -6980,7 +7420,6 @@ procedure TBitmap32.TileTo(Dst: TControlCanvas; const DstRect, SrcRect: TRect; M
 begin
   TileTo(Dst.Handle, DstRect, SrcRect, MaxTileSize);
 end;
-{$ENDIF}
 
 procedure TBitmap32.UpdateFont;
 begin
@@ -7042,13 +7481,8 @@ begin
     lfHeight := Font.Height;
     lfWidth := 0; { have font mapper choose }
 
-    {$IFDEF COMPILER2005_UP}
     lfEscapement := Font.Orientation;
     lfOrientation := Font.Orientation;
-    {$ELSE}
-    lfEscapement := 0;
-    lfOrientation := 0;
-    {$ENDIF}
 
     if fsBold in Font.Style then
       lfWeight := FW_BOLD
@@ -7152,80 +7586,41 @@ begin
   end;
 end;
 
-procedure TBitmap32.RenderText(X, Y: Integer; const Text: string; AALevel: Integer; Color: TColor32);
+procedure TBitmap32.RenderText(X, Y: Integer; const Text: string; Color: TColor32; AntiAlias: boolean);
 var
-  B, B2: TBitmap32;
+  B: TBitmap32;
   Sz: TSize;
-{$IFNDEF PLATFORM_INDEPENDENT}
-  SzSpace: TSize;
-{$ENDIF}
   Alpha: TColor32;
-  StockCanvas: TCanvas;
 begin
   if Empty then
     Exit;
 
-  Alpha := Color shr 24;
-  Color := Color and $00FFFFFF;
-  AALevel := Constrain(AALevel, -1, 4);
+  Alpha := TColor32Entry(Color).A;
+  TColor32Entry(Color).A := 0;
 
-  {$IFDEF FPC}
-  if AALevel > -1 then
-    Font.Quality := fqNonAntialiased
+{$IFDEF FPC}
+  if (AntiAlias) then
+    Font.Quality := fqAntialiased
   else
-    Font.Quality := fqAntialiased;
-  {$ELSE}
-  if AALevel > -1 then
-    SetFontAntialiasing(Font, NONANTIALIASED_QUALITY)
+    Font.Quality := fqNonAntialiased;
+{$ELSE}
+  if (AntiAlias) then
+    SetFontAntialiasing(Font, ANTIALIASED_QUALITY)
   else
-    SetFontAntialiasing(Font, ANTIALIASED_QUALITY);
-  {$ENDIF}
+    SetFontAntialiasing(Font, NONANTIALIASED_QUALITY);
+{$ENDIF}
 
   { TODO : Optimize Clipping here }
   B := TBitmap32.Create;
   try
-    if AALevel <= 0 then
-    begin
-      Sz := Self.TextExtent(Text) + Self.TextExtent(' ');
-      B.SetSize(Sz.cX, Sz.cY);
-      B.Font := Font;
-      B.Clear(0);
-      B.Font.Color := clWhite;
-      B.Textout(0, 0, Text);
-      TextBlueToAlpha(B, Color);
-    end
-    else
-    begin
-      StockCanvas := StockBitmap.Canvas;
-      StockCanvas.Lock;
-      try
-        StockCanvas.Font := Font;
-        StockCanvas.Font.Size := Font.Size shl AALevel;
-{$IFDEF PLATFORM_INDEPENDENT}
-        Sz := StockCanvas.TextExtent(Text) + StockCanvas.TextExtent(' ');
-{$ELSE}
-        Windows.GetTextExtentPoint32(StockCanvas.Handle, PChar(Text), Length(Text), Sz);
-        Windows.GetTextExtentPoint32(StockCanvas.Handle, PChar(string(' ')), 1, SzSpace);
-        Sz := Sz + SzSpace;
-{$ENDIF}
-        Sz.Cx := (Sz.cx shr AALevel + 1) shl AALevel;
-        Sz.Cy := (Sz.cy shr AALevel + 1) shl AALevel;
-        B2 := TBitmap32.Create;
-        try
-          B2.SetSize(Sz.Cx, Sz.Cy);
-          B2.Clear(0);
-          B2.Font := StockCanvas.Font;
-          B2.Font.Color := clWhite;
-          B2.Textout(0, 0, Text);
-          B.SetSize(Sz.cx shr AALevel, Sz.cy shr AALevel);
-          TextScaleDown(B, B2, AALevel, Color);
-        finally
-          B2.Free;
-        end;
-      finally
-        StockCanvas.Unlock;
-      end;
-    end;
+    Sz := Self.TextExtent(Text) + Self.TextExtent(' ');
+    B.SetSize(Sz.cX, Sz.cY);
+    B.Font := Font;
+    B.Clear(0);
+    B.Font.Color := clWhite;
+
+    B.Textout(0, 0, Text);
+    TextBlueToAlpha(B, Color);
 
     B.DrawMode := dmBlend;
     B.MasterAlpha := Alpha;
@@ -7236,11 +7631,16 @@ begin
     B.Free;
   end;
 
-  {$IFDEF FPC}
+{$IFDEF FPC}
   Font.Quality := fqDefault;
-  {$ELSE}
+{$ELSE}
   SetFontAntialiasing(Font, DEFAULT_QUALITY);
-  {$ENDIF}
+{$ENDIF}
+end;
+
+procedure TBitmap32.RenderText(X, Y: Integer; const Text: string; AALevel: Integer; Color: TColor32);
+begin
+  RenderText(X, Y, Text, Color, (AALevel < 0));
 end;
 
 // -------------------------------------------------------------------
@@ -7475,7 +7875,54 @@ begin
   end;
 end;
 
+
+//------------------------------------------------------------------------------
+//
+//      Bindings
+//
+//------------------------------------------------------------------------------
+procedure RegisterBindings;
+begin
+{$if (not defined(PUREPASCAL)) and (not defined(OMIT_SSE2))}
+  GeneralRegistry.RegisterBinding(@@FastPrevWeight);
+{$ifend}
+end;
+
+var
+  FGeneralRegistry: TFunctionRegistry = nil;
+
+function GeneralRegistry: TFunctionRegistry;
+begin
+  if (FGeneralRegistry = nil) then
+  begin
+    FGeneralRegistry := NewRegistry('GR32 misc. bindings');
+    RegisterBindings;
+  end;
+  Result := FGeneralRegistry;
+end;
+
+//------------------------------------------------------------------------------
+//
+//      Function bindings
+//
+//------------------------------------------------------------------------------
+procedure RegisterBindingFunctions;
+begin
+{$if (not defined(PUREPASCAL)) and (not defined(OMIT_SSE2))}
+  // For PUREPASCAL FastPrevWeight is inlined and thus doesn't use the binding system
+  GeneralRegistry.Add(@@FastPrevWeight, @FastPrevWeight_Pas,    [isPascal]);
+  GeneralRegistry.Add(@@FastPrevWeight, @FastPrevWeight_SSE41,  [isSSE41]);
+{$ifend}
+end;
+
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+
 initialization
+  RegisterBindingFunctions;
+  GeneralRegistry.RebindAll;
+
   SetGamma;
   StockBitmap := TBitmap.Create;
   StockBitmap.Width := 8;

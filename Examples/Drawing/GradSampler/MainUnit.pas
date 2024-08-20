@@ -33,6 +33,8 @@ unit MainUnit;
 
 interface
 
+{$I GR32.inc}
+
 uses
   {$IFDEF FPC} LCLIntf, LResources, Buttons, {$ENDIF} SysUtils, Classes,
   Graphics, Controls, Forms, Dialogs, Menus, ExtCtrls,
@@ -69,6 +71,7 @@ type
     MnuBackgroundGradientVoronoi: TMenuItem;
     MnuBackgroundGradientShepards: TMenuItem;
     MnuBackgroundGradientCustomIDW: TMenuItem;
+    MnuWrapModeReflect: TMenuItem;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
@@ -83,6 +86,7 @@ type
     procedure MnuWrapModeClampClick(Sender: TObject);
     procedure MnuWrapModeRepeatClick(Sender: TObject);
     procedure MnuWrapModeMirrorClick(Sender: TObject);
+    procedure MnuWrapModeReflectClick(Sender: TObject);
     procedure PaintBox32PaintBuffer(Sender: TObject);
     procedure PaintBox32MouseDown(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: Integer);
@@ -143,7 +147,12 @@ implementation
 {$ENDIF}
 
 uses
-  Math, GR32_Math, GR32_LowLevel, GR32_Polygons, GR32_Geometry,
+  Math,
+  Types,
+  GR32_Math,
+  GR32_LowLevel,
+  GR32_Polygons,
+  GR32_Geometry,
   GR32_VectorUtils;
 
 { TMyGradient }
@@ -228,6 +237,10 @@ begin
   FEndColor := SetAlpha(Random($FFFFFF), $FF);
 
   UpdateBackgroundGradientSampler;
+
+{$ifndef GR32_WRAPMODE_REFLECT}
+  MnuWrapModeReflect.Enabled := False;
+{$endif}
 
   PaintBox32.Invalidate;
 end;
@@ -416,6 +429,15 @@ begin
   PaintBox32.Invalidate;
 end;
 
+procedure TFrmGradientSampler.MnuWrapModeReflectClick(Sender: TObject);
+begin
+{$ifdef GR32_WRAPMODE_REFLECT}
+  FWrapMode := wmReflect;
+  MnuWrapModeReflect.Checked := True;
+  PaintBox32.Invalidate;
+{$endif}
+end;
+
 procedure TFrmGradientSampler.MnuWrapModeRepeatClick(Sender: TObject);
 begin
   FWrapMode := wmRepeat;
@@ -455,8 +477,7 @@ begin
   begin
     for Index := 0 to 2 do
     begin
-      FMesh[Index].Point := FloatPoint(PaintBox32.Width * Random,
-        PaintBox32.Height * Random);
+      FMesh[Index].Point := FloatPoint(PaintBox32.Width * Random, PaintBox32.Height * Random);
       FMesh[Index].Velocity := FloatPoint(2 * Random - 1, 2 * Random - 1);
       FMesh[Index].Color := SetAlpha(Random($FFFFFF), $FF);
       FMesh[Index].HueChange := 0.001 * (2 * Random - 1);
@@ -484,29 +505,29 @@ end;
 
 procedure TFrmGradientSampler.PaintBox32MouseMove(Sender: TObject;
   Shift: TShiftState; X, Y: Integer);
+var
+  Dist: TFloat;
 begin
-  if ssRight in Shift then
+  if (ssRight in Shift) then
   begin
-    if ssShift in Shift then
+    if (ssShift in Shift) then
       FCenter := FloatPoint(X, Y)
     else
       FGradCenter := FloatPoint(X, Y);
     PaintBox32.Invalidate;
   end else
-  if ssLeft in Shift then
+  if (ssLeft in Shift) then
   begin
-    if (Y = FGradCenter.Y) and (X = FGradCenter.X) then
-    begin
-      FRadius := 0;
-    end
-    else
+    if (Y <> FGradCenter.Y) or (X <> FGradCenter.X) then
     begin
       FAngle := FAngle - ArcTan2(Y - FGradCenter.Y, X - FGradCenter.X) +
         ArcTan2(FLastPos.Y - FGradCenter.Y, FLastPos.X - FGradCenter.X);
-      FRadius := FRadius * (Hypot(Y - FGradCenter.Y, X - FGradCenter.X) /
-        Distance(FLastPos, FGradCenter));
+      Dist := Distance(FLastPos, FGradCenter);
+      if (Dist > 0) then
+        FRadius := FRadius * (Hypot(Y - FGradCenter.Y, X - FGradCenter.X) / Dist);
+
+      PaintBox32.Invalidate;
     end;
-    PaintBox32.Invalidate;
   end;
   FLastPos := FloatPoint(X, Y);
 end;

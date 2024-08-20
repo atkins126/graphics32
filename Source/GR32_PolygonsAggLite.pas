@@ -120,7 +120,11 @@ procedure DashLineFS_AggLite(Bitmap: TBitmap32; const Points: TArrayOfFloatPoint
 implementation
 
 uses
-  Math, GR32_Blend, GR32_Gamma, GR32_LowLevel, GR32_System, GR32_Bindings,
+  Math,
+  GR32_Blend,
+  GR32_Gamma,
+  GR32_LowLevel,
+  GR32_Bindings,
   GR32_VectorUtils;
 
 procedure PolyPolygonFS_AggLite(Bitmap: TBitmap32; const Points: TArrayOfArrayOfFloatPoint;
@@ -1688,7 +1692,7 @@ var
   R: TFloatRect;
 begin
   R := ClipRect;
-  InflateRect(R, 0.05, 0.05);
+  GR32.InflateRect(R, 0.05, 0.05);
   APoints := ClipPolygon (Points, R);
 
   OutLine := TOutline.Create;
@@ -1745,7 +1749,7 @@ begin
   APoints := Points;
   // temporary fix for floating point rounding errors - corr. - to + by pws
   R := ClipRect;
-  InflateRect(R, 0.05, 0.05);
+  GR32.InflateRect(R, 0.05, 0.05);
   FirstValid := -1;
   for i := 0 to High(APoints) do
   begin
@@ -1810,36 +1814,25 @@ begin
   end;
 end;
 
-const
-  FID_FILLSPAN = 0;
-
-const
-  FillSpanBindingFlagPascal = $0001;
-
-const
-  FillSpanRegistryPriorityASM = -256;
-  FillSpanRegistryPriorityMMX = -512;
-  FillSpanRegistryPrioritySSE2 = -768;
-
 var
   FillSpanRegistry: TFunctionRegistry;
 
 procedure RegisterBindings;
 begin
   FillSpanRegistry := NewRegistry('GR32_PolygonsAggLite bindings');
-  FillSpanRegistry.RegisterBinding(FID_FILLSPAN, @@FILLSPAN);
+  FillSpanRegistry.RegisterBinding(@@FILLSPAN);
 
   // pure pascal
-  FillSpanRegistry.Add(FID_FILLSPAN, @FILLSPAN_Pas, [], FillSpanBindingFlagPascal);
+  FillSpanRegistry.Add(@@FILLSPAN, @FILLSPAN_Pas, [isPascal]);
 
 {$IFNDEF PUREPASCAL}
-  FillSpanRegistry.Add(FID_FILLSPAN, @FILLSPAN_ASM, [], 0, FillSpanRegistryPriorityASM);
+  FillSpanRegistry.Add(@@FILLSPAN, @FILLSPAN_ASM, [isAssembler]);
 {$IFNDEF OMIT_MMX}
-  FillSpanRegistry.Add(FID_FILLSPAN, @FILLSPAN_MMX, [ciMMX], 0, FillSpanRegistryPriorityMMX);
+  FillSpanRegistry.Add(@@FILLSPAN, @FILLSPAN_MMX, [isMMX]);
 {$ENDIF}
 
 {$IFNDEF OMIT_SSE2}
-  FillSpanRegistry.Add(FID_FILLSPAN, @FILLSPAN_SSE2, [ciSSE2], 0, FillSpanRegistryPrioritySSE2);
+  FillSpanRegistry.Add(@@FILLSPAN, @FILLSPAN_SSE2, [isSSE2]);
 {$ENDIF}
 {$ENDIF}
 

@@ -28,8 +28,6 @@ unit GR32.ImageFormats.TPicture;
  * Portions created by the Initial Developer are Copyright (C) 2008-2022
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
- *
  * ***** END LICENSE BLOCK ***** *)
 
 interface
@@ -40,6 +38,9 @@ implementation
 
 uses
   Classes,
+{$ifdef FPC}
+  LCLType, // LCLType must be after Classes so we get the correct THandle
+{$endif FPC}
   Graphics,
   Clipbrd,
   GR32,
@@ -83,15 +84,29 @@ end;
 
 function TImageFormatAdapterTPicture.CanAssignTo(Dest: TPersistent): boolean;
 begin
-  Result := (Dest is TPicture) and (TPicture(Dest).Graphic <> nil) and
-    ImageFormatManager.Adapters.CanAssignTo(TPicture(Dest).Graphic);
+  if (Dest is TPicture) then
+  begin
+    // Try to assign to TPicture.Graphic, fallback to TBitmap
+    Result := ((TPicture(Dest).Graphic <> nil) and ImageFormatManager.Adapters.CanAssignTo(TPicture(Dest).Graphic)) or
+      ImageFormatManager.Adapters.CanAssignTo(TPicture(Dest).Bitmap); // Note: This potentially modifies the TPicture
+  end else
+    Result := False;
 end;
 
 function TImageFormatAdapterTPicture.AssignTo(Source: TCustomBitmap32; Dest: TPersistent): boolean;
 begin
-  Result := (Dest is TPicture) and (TPicture(Dest).Graphic <> nil) and
-    // Recurse and try to assign to the TGraphic
-    ImageFormatManager.Adapters.AssignTo(Source, TPicture(Dest).Graphic);
+  if (Dest is TPicture) then
+  begin
+    // Try to assign to TPicture.Graphic, fallback to TBitmap
+    Result := (TPicture(Dest).Graphic <> nil) and
+      // Recurse and try to assign to the TGraphic
+      ImageFormatManager.Adapters.AssignTo(Source, TPicture(Dest).Graphic);
+
+    if (not Result) then
+      // Recurse and try to assign to TBitmap
+      Result := ImageFormatManager.Adapters.AssignTo(Source, TPicture(Dest).Bitmap);
+  end else
+    Result := False;
 end;
 
 

@@ -29,8 +29,6 @@ unit GR32_RepaintOpt;
  * Portions created by the Initial Developer are Copyright (C) 2005-2009
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
- *
  * ***** END LICENSE BLOCK ***** *)
 
 interface
@@ -45,20 +43,30 @@ uses
 {$ENDIF}
   Generics.Defaults,
   Generics.Collections,
-  Classes, SysUtils, GR32, GR32_Containers, GR32_Layers;
+  Classes, SysUtils,
+  GR32,
+  GR32_Containers,
+  GR32_Layers;
+
+{$if defined(FPC) or (CompilerVersion < 35.0)}
+type
+  TNoRefCountObject = TSingletonImplementation;
+{$ifend}
 
 type
   { TCustomRepaintOptimizer }
-  TCustomRepaintOptimizer = class(TSingletonImplementation)
+  TCustomRepaintOptimizer = class(TNoRefCountObject)
+  private type
+    TLayerCollectionList = TList<TLayerCollection>;
   private
     FEnabled: Boolean;
-    FLayerCollections: TList<TLayerCollection>;
+    FLayerCollections: TLayerCollectionList;
     FInvalidRects: TRectList;
     FBuffer: TBitmap32;
   protected
     function GetEnabled: Boolean; virtual;
     procedure SetEnabled(const Value: Boolean); virtual;
-    property LayerCollections: TList<TLayerCollection> read FLayerCollections;
+    property LayerCollections: TLayerCollectionList read FLayerCollections;
     property Buffer: TBitmap32 read FBuffer write FBuffer;
     property InvalidRects: TRectList read FInvalidRects write FInvalidRects;
   public
@@ -139,7 +147,7 @@ end;
 procedure TCustomRepaintOptimizer.RegisterLayerCollection(Layers: TLayerCollection);
 begin
   if (FLayerCollections = nil) then
-    FLayerCollections := TList<TLayerCollection>.Create;
+    FLayerCollections := TLayerCollectionList.Create;
 
   if not FLayerCollections.Contains(Layers) then
   begin

@@ -36,6 +36,7 @@ unit GR32_MicroTiles;
 interface
 
 {$I GR32.inc}
+
 {-$DEFINE CODESITE}
 {-$DEFINE CODESITE_HIGH}
 {-$DEFINE PROFILINGDRYRUN}
@@ -46,22 +47,19 @@ interface
   {-$DEFINE MICROTILES_NO_ADAPTION_FORCE_WHOLETILES}
 
 uses
-{$IFDEF FPC}
-  Types,
-  {$IFDEF Windows}
-    Windows,
-  {$ENDIF}
-{$ELSE}
+{$IFDEF Windows}
   Windows,
 {$ENDIF}
 {$IFDEF CODESITE}
   CSIntf, CSAux,
 {$ENDIF}
-{$IFDEF COMPILER2005_UP}
   Types,
-{$ENDIF}
   SysUtils, Classes,
-  GR32, GR32_System, GR32_Containers, GR32_Layers, GR32_RepaintOpt;
+  GR32,
+  GR32_System,
+  GR32_Containers,
+  GR32_Layers,
+  GR32_RepaintOpt;
 
 const
   MICROTILE_SHIFT = 5;
@@ -164,7 +162,7 @@ type
     // adaptive stuff...
     FAdaptiveMode: Boolean;
 
-    FPerfTimer: TPerfTimer;
+    FPerfTimer: TStopWatch;
     FPerformanceLevel: Integer;
     FElapsedTimeForLastRepaint: Int64;
     FElapsedTimeForFullSceneRepaint: Int64;
@@ -1133,7 +1131,6 @@ begin
   inherited;
   FOldInvalidTilesMap := TMicroTilesMap.Create;
   FInvalidLayers := TList.Create;
-  FPerfTimer := TPerfTimer.Create;
 {$IFNDEF MICROTILES_DEBUGDRAW}
   {$IFNDEF MICROTILES_NO_ADAPTION}
   FAdaptiveMode := True;
@@ -1156,7 +1153,6 @@ begin
   MicroTilesDestroy(FTempTiles);
   MicroTilesDestroy(FInvalidTiles);
 
-  FPerfTimer.Free;
   FInvalidLayers.Free;
   FOldInvalidTilesMap.Free;
 
@@ -1306,29 +1302,36 @@ var
   I, J: Integer;
   TilesPtr: PMicroTiles;
   Layer: TCustomLayer;
+  LayerCollection: TLayerCollection;
 begin
-  if not FOldInvalidTilesValid then  // check if old Invalid tiles need resize and rerendering...
-  begin
-    ValidateWorkingTiles;
+  if FOldInvalidTilesValid then  // check if old Invalid tiles need resize and rerendering...
+    exit;
 
-    if (LayerCollections <> nil) then
-      for I := 0 to LayerCollections.Count - 1 do
-      with LayerCollections[I] do
-        for J := 0 to Count - 1 do
-        begin
-          Layer := Items[J];
-          TilesPtr := FOldInvalidTilesMap.Add(Layer)^;
+  ValidateWorkingTiles;
 
-          MicroTilesSetSize(TilesPtr^, FBufferBounds);
+  if (LayerCollections <> nil) then
+    for I := 0 to LayerCollections.Count - 1 do
+    begin
+      LayerCollection := LayerCollections[I];
+
+      for J := 0 to LayerCollection.Count - 1 do
+      begin
+        Layer := LayerCollection[J];
+
+        TilesPtr := FOldInvalidTilesMap.Add(Layer)^;
+        MicroTilesSetSize(TilesPtr^, FBufferBounds);
+
+        if (Layer.Visible) then
           DrawLayerToMicroTiles(TilesPtr^, Layer);
-          TCustomLayerAccess(Layer).Invalid := False;
-        end;
 
-    FInvalidLayers.Clear;
+        TCustomLayerAccess(Layer).Invalid := False;
+      end;
+    end;
 
-    FOldInvalidTilesValid := True;
-    FUseInvalidTiles := False;
-  end;
+  FInvalidLayers.Clear;
+
+  FOldInvalidTilesValid := True;
+  FUseInvalidTiles := False;
 end;
 
 procedure TMicroTilesRepaintOptimizer.SetEnabled(const Value: Boolean);
@@ -1372,7 +1375,7 @@ end;
 procedure TMicroTilesRepaintOptimizer.BeginPaintBuffer;
 begin
   if AdaptiveMode then
-    FPerfTimer.Start;
+    FPerfTimer := TStopWatch.StartNew;
 end;
 
 procedure TMicroTilesRepaintOptimizer.EndPaintBuffer;
@@ -1433,6 +1436,9 @@ begin
       for I := 0 to FInvalidLayers.Count - 1 do
       begin
         Layer := FInvalidLayers[I];
+
+        if (not Layer.Visible) then
+          continue;
 
         // Clear temporary tiles
         MicroTilesClearUsed(FTempTiles);
@@ -1517,7 +1523,7 @@ var
   Level: Integer;
 begin
   // our KISS(TM) repaint mode balancing starts here...
-  TimeElapsed := FPerfTimer.ReadValue;
+  TimeElapsed := FPerfTimer.ElapsedTicks;
 
 {$IFDEF MICROTILES_DEBUGDRAW}
   if FDebugInvalidRects.Count = 0 then
@@ -1671,13 +1677,14 @@ begin
   Registry := NewRegistry('GR32_MicroTiles bindings');
   Registry.RegisterBinding(FID_MICROTILEUNION, @@MicroTileUnion);
   Registry.RegisterBinding(FID_MICROTILESUNION, @@MicroTilesU);
-  Registry.Add(FID_MICROTILEUNION, @MicroTileUnion_Pas);
-  Registry.Add(FID_MICROTILESUNION, @MicroTilesUnion_Pas);
+
+  Registry.Add(FID_MICROTILEUNION, @MicroTileUnion_Pas, [isPascal]);
+  Registry.Add(FID_MICROTILESUNION, @MicroTilesUnion_Pas, [isPascal]);
 
 {$IFNDEF PUREPASCAL}
 {$IFDEF TARGET_x86}
-  Registry.Add(FID_MICROTILEUNION, @MicroTileUnion_EMMX, [ciEMMX]);
-  Registry.Add(FID_MICROTILESUNION, @MicroTilesUnion_EMMX, [ciEMMX]);
+  Registry.Add(FID_MICROTILEUNION, @MicroTileUnion_EMMX, [isExMMX]);
+  Registry.Add(FID_MICROTILESUNION, @MicroTilesUnion_EMMX, [isExMMX]);
 {$ENDIF}
 {$ENDIF}
   Registry.RebindAll;

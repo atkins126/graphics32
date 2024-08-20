@@ -34,9 +34,9 @@ type
     MnuOrder11: TMenuItem;
     MnuOrder12: TMenuItem;
     MnuOrder13: TMenuItem;
-    MnuPad: TMenuItem;
+    MnuClamp: TMenuItem;
     MnuRadialFillStyle: TMenuItem;
-    MnuReflect: TMenuItem;
+    MnuMirror: TMenuItem;
     MnuRepeat: TMenuItem;
     MnuSimple: TMenuItem;
     MnuWrapMode: TMenuItem;
@@ -47,6 +47,7 @@ type
     RgpEllipseFillStyle: TRadioGroup;
     RgpWrapMode: TRadioGroup;
     SaveDialog: TSaveDialog;
+    MnuReflect: TMenuItem;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormKeyPress(Sender: TObject; var Key: Char);
@@ -277,19 +278,18 @@ var
   Offset: TFloat;
   Color: TColor32;
   ColorStr: string;
+  LocalFormatSettings: TFormatSettings;
 begin
-{$IFDEF COMPILER2005_UP}
-  FormatSettings.DecimalSeparator := '.';
-{$ELSE}
-  DecimalSeparator := '.';
-{$ENDIF}
+  LocalFormatSettings := FormatSettings;
+  LocalFormatSettings.DecimalSeparator := '.';
+
   Gradient.ClearColorStops;
   for i := 0 to s.Count - 1 do
   begin
     j := Pos(':', s[i]);
     if j < 2 then
       Continue;
-    Offset := StrToFloatDef(Copy(s[i], 1, j - 1), -1);
+    Offset := StrToFloatDef(Copy(s[i], 1, j - 1), -1, LocalFormatSettings);
     if (Offset < 0) then
       Continue;
     ColorStr := Trim(Copy(s[i], j + 1, 80));
@@ -397,7 +397,7 @@ begin
     FDpiScale := 1;
 
   ClientWidth := PnlControl.Width + DPIScale(400);
-  ClientHeight := DPIScale(450);
+  ClientHeight := DPIScale(500);
 
   ImgView32.SetupBitmap(true, clCream32);
 
@@ -473,6 +473,11 @@ begin
     FRadialX := GR32.Point(X - DPIScale(80), Y);
     FRadialY := GR32.Point(X, Y + DPIScale(40));
   end;
+
+{$ifndef GR32_WRAPMODE_REFLECT}
+  MnuReflect.Enabled := False;
+  RgpWrapMode.Items.Delete(3);
+{$endif}
 
   DrawImage;
 end;
@@ -812,9 +817,10 @@ end;
 procedure TMainForm.RgpWrapModeClick(Sender: TObject);
 begin
   case RgpWrapMode.ItemIndex of
-    0: MnuPad.Checked := True;
-    1: MnuReflect.Checked := True;
-    2: MnuRepeat.Checked := True;
+    0: MnuClamp.Checked := True;
+    1: MnuRepeat.Checked := True;
+    2: MnuMirror.Checked := True;
+    3: MnuReflect.Checked := True;
   end;
   DrawImage;
 end;

@@ -1,10 +1,11 @@
 program Image32Background;
 
-uses
-  Vcl.Forms,
-  Main in 'Main.pas' {FormMain};
+{$R 'Media.res' 'Media.rc'}
+{$R '..\..\manifest.res'}
 
-{$R *.res}
+uses
+  Forms,
+  Main in 'Main.pas' {FormMain};
 
 begin
   Application.Initialize;

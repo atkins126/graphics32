@@ -26,11 +26,6 @@
  * Portions created by the Initial Developer are Copyright (C) 2000-2009
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
- *   Andre Beckedorf <Andre@metaException.de>
- *   Michael Hansen <dyster_tid@hotmail.com>
- *   Christian Budde <Christian@aixcoustic.com>
- *
  * ***** END LICENSE BLOCK ***** *)
 
  {$I GR32_Compiler.inc}
@@ -48,23 +43,11 @@
       any assmbler code. The code is slower, but probably more platform
       independent.
 
-      (Defined by default for FPC and DARWIN targets in GR32_Compilers.INC.)
+      (Defined by default for some targets in GR32_Compilers.INC.)
 
 *)
 
   {-$DEFINE PUREPASCAL}
-
-
-
-(* Symbol DEPRECATEDMODE :
-   -----------------------
-
-      Defines if GR32 should behave like version 1.7.x and down.
-
-   NOTE: Support for this will be dropped at some time and is only provided
-   for transition *)
-
-  {-$DEFINE DEPRECATEDMODE}
 
 
 
@@ -193,19 +176,6 @@
 
 
 (*
-  Symbol: USEGR32GAMMA
-  --------------------
-
-    If defined the polygon rasterizer will use the GR32 gamma correction LUT.
-
-  Disable for a slight performance increase.
-*)
-
-{$DEFINE USEGR32GAMMA}
-
-
-
-(*
   Symbol: CHANGENOTIFICATIONS
   ---------------------------
 
@@ -289,3 +259,5 @@
 
 
 {-$DEFINE TEST_BLENDMEMRGB128SSE4}
+{$define GR32_WRAPMODE_REFLECT}
+
