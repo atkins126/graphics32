@@ -157,7 +157,7 @@ procedure RestoreAffinityMask;
 //------------------------------------------------------------------------------
 type
   { TCPUFeature, previously TCPUInstructionSet, defines specific CPU technologies }
-  TCPUFeature = (ciMMX, ciEMMX, ciSSE, ciSSE2, ci3DNow, ci3DNowExt);
+  TCPUFeature = (ciMMX, ciEMMX, ciSSE, ciSSE2);
   TCPUFeatures = set of TCPUFeature;
   PCPUFeatures = ^TCPUFeatures;
 
@@ -167,7 +167,7 @@ function HasInstructionSet(const InstructionSet: TCPUFeature): Boolean; deprecat
 function CPUFeatures: TCPUFeatures; deprecated 'Use CPU.InstructionSupport instead';
 
 const
-  InstructionSetMap: array[TCPUFeature] of TCPUInstructionSet = (isMMX, isExMMX, isSSE, isSSE2, is3DNow, isEx3DNow);
+  InstructionSetMap: array[TCPUFeature] of TCPUInstructionSet = (isMMX, isExMMX, isSSE, isSSE2);
 
 // Migration support: TCPUFeatures->TInstructionSupport
 function CPUFeaturesToInstructionSupport(CPUFeatures: TCPUFeatures): TInstructionSupport; deprecated;
@@ -192,7 +192,7 @@ var
 implementation
 
 uses
-{$ifdef WINDOWS}
+{$ifdef MSWINDOWS}
   Windows,
 {$endif}
   SysUtils,
@@ -367,7 +367,7 @@ begin
   Result := CPUCount;
 end;
 {$else}
-{$if defined(Windows)}
+{$if defined(MSWINDOWS)}
 var
   lpSysInfo: TSystemInfo;
 begin
@@ -383,7 +383,7 @@ end;
 
 //------------------------------------------------------------------------------
 
-{$if (defined(Windows)) and (not defined(FPC))}
+{$if (defined(MSWINDOWS)) and (not defined(FPC))}
 function SetPerformanceAffinityMask(Force: boolean): boolean;
 type
   // Declaration in Delphi 11 lacks EfficiencyClass
