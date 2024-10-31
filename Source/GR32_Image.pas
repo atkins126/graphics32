@@ -500,6 +500,7 @@ type
     FBackgroundOptions: TBackgroundOptions;
     FMousePanOptions: TMousePanOptions;
     FMouseZoomOptions: TMouseZoomOptions;
+    FClicked: boolean;
     FIsMousePanning: boolean;
     FMousePanStartPos: TPoint;
     FOnBitmapResize: TNotifyEvent;
@@ -614,6 +615,8 @@ type
     procedure SetupBitmap(DoClear: Boolean = False; ClearColor: TColor32 = $FF000000); virtual;
     procedure Scroll(Dx, Dy: Integer); overload;
     procedure Scroll(Dx, Dy: Single); overload; virtual;
+    procedure ScrollToCenter; overload;
+    procedure ScrollToCenter(X, Y: Integer); overload; virtual;
     procedure Zoom(AScale: TFloat; const APivot: TFloatPoint; AAnimate: boolean = False); overload;
     procedure Zoom(AScale: TFloat; AAnimate: boolean = False); overload;
 
@@ -799,8 +802,7 @@ type
     function GetViewportRect: TRect; override;
     procedure Loaded; override;
     procedure Resize; override;
-    procedure ScrollToCenter; overload;
-    procedure ScrollToCenter(X, Y: Integer); overload;
+    procedure ScrollToCenter(X, Y: Integer); override;
     procedure Scroll(Dx, Dy: Single); override;
     property Centered: Boolean read FCentered write SetCentered default True;
     property ScrollBars: TImageViewScrollProperties read FScrollBars write SetScrollBars;
@@ -1456,6 +1458,8 @@ end;
 procedure TCustomPaintBox32.Paint;
 var
   PaintSupport: IPaintSupport;
+  i: integer;
+  r: TRect;
 {$ifdef UPDATERECT_SLOWMOTION}
 const
 {$ifdef UPDATERECT_SUPERSLOWMOTION}
@@ -1470,8 +1474,6 @@ const
   clDebugDrawFrame = TColor32($00AF0A0A);
 var
   C1, C2: TColor32;
-  r: TRect;
-  i: integer;
 {$endif}
 {$ifdef PAINT_UNCLIPPED}
 var
@@ -1528,7 +1530,23 @@ begin
 
   FBuffer.Lock;
   try
-    PaintSupport.DoPaint(FBuffer, FUpdateRects, Canvas, Self);
+    if (FUpdateRects.Count > 0) then
+    begin
+
+      // Clip update rects.
+      // Mainly so we don't paint over the ScrollBars/SizeGrip but also
+      // for possibly slightly better performance.
+      for i := 0 to FUpdateRects.Count-1 do
+        GR32.IntersectRect(FUpdateRects[i]^, FUpdateRects[i]^, FBuffer.ClipRect);
+
+      PaintSupport.DoPaint(FBuffer, FUpdateRects, Canvas)
+
+    end else
+    begin
+      GR32.IntersectRect(r, GetViewportRect, FBuffer.ClipRect);
+
+      PaintSupport.DoPaint(FBuffer, r, Canvas);
+    end;
   finally
     FBuffer.Unlock;
   end;
@@ -2068,6 +2086,11 @@ begin
 
   Bitmap.OnResize := nil;
 
+  // Empty bitmap so we don't fail in UpdateCache when layers are
+  // hidden during destruction and calls back via LayerCollection to
+  // get the ClientRect.
+  Bitmap.Delete;
+
   FreeAndNil(FPaintStages);
   RepaintOptimizer.UnregisterLayerCollection(FLayers);
   FLayers.Unsubscribe(Self);
@@ -2076,6 +2099,7 @@ begin
   FreeAndNil(FBackgroundOptions);
   FreeAndNil(FMousePanOptions);
   FreeAndNil(FMouseZoomOptions);
+
   inherited;
 end;
 
@@ -3464,6 +3488,14 @@ begin
   if TabStop and CanFocus then
     SetFocus;
 
+  if (not GetViewportRect.Contains(Point(X, Y))) then
+  begin
+    // Click outside viewport; Most likely the small rectangle in the
+    // lower right corner between the scrollbars.
+    MouseCapture := False;
+    exit;
+  end;
+
 {$ifdef MOUSE_UPDATE_BATCHING}
   BeginUpdate;
   try
@@ -3475,9 +3507,13 @@ begin
 
     // lock the capture only if mbLeft was pushed or any mouse listener was activated
     if (Button = mbLeft) or (TLayerCollectionAccess(Layers).MouseListener <> nil) then
+      // Note that TControl will have already captured the mouse for us since we
+      // have ControlStyle=[...csCaptureMouse...]
       MouseCapture := True;
 
     MouseDown(Button, Shift, X, Y, Layer);
+    // Signal MouseUp that we handled the MouseDown
+    FClicked := True;
 
     if (Layer = nil) and (CanMousePan) and (Button = FMousePanOptions.MouseButton) and (FMousePanOptions.MatchShiftState(Shift)) then
     begin
@@ -3529,14 +3565,21 @@ begin
     if (FMousePanOptions.PanCursor <> crDefault) then
       Screen.Cursor := FMousePanOptions.PanCursor;
   end else
+  // Ignore movement outside viewport unless we have captured the mouse
+  if (MouseCapture) or (GetViewportRect.Contains(Point(X, Y))) then
   begin
   {$ifdef MOUSE_UPDATE_BATCHING}
     BeginUpdate;
     try
   {$endif MOUSE_UPDATE_BATCHING}
       if Layers.MouseEvents then
-        Layer := TLayerCollectionAccess(Layers).MouseMove(Shift, X, Y)
-      else
+      begin
+        Layer := TLayerCollectionAccess(Layers).MouseMove(Shift, X, Y);
+
+        if (Layer = nil) then
+          // Restore cursor in case we moved from a layer to outside any layer
+          Screen.Cursor := Cursor;
+      end else
         Layer := nil;
 
       MouseMove(Shift, X, Y, Layer);
@@ -3545,7 +3588,10 @@ begin
       EndUpdate;
     end;
 {$endif MOUSE_UPDATE_BATCHING}
-  end;
+  end else
+    // Restore cursor in case we moved from layer to outside viewport
+    // but inside control
+    Screen.Cursor := Cursor;
 end;
 
 procedure TCustomImage32.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -3553,6 +3599,12 @@ var
   Layer: TCustomLayer;
   MouseListener: TCustomLayer;
 begin
+  // Ignore MouseUp unless we handled the MouseDown. Do not use MouseCapture
+  // for this test (see below).
+  if (not FClicked) then
+    exit;
+  FClicked := False;
+
   MouseListener := TLayerCollectionAccess(Layers).MouseListener;
 
 {$ifdef MOUSE_UPDATE_BATCHING}
@@ -3564,8 +3616,10 @@ begin
     else
       Layer := nil;
 
-    // unlock the capture using same criteria as was used to acquire it
+    // Unlock the capture using same criteria as was used to acquire it
     if (Button = mbLeft) or ((MouseListener <> nil) and (TLayerCollectionAccess(Layers).MouseListener = nil)) then
+      // Note that TControl will have already released the mouse capture since
+      // we have ControlStyle=[...csCaptureMouse...]
       MouseCapture := False;
 
     MouseUp(Button, Shift, X, Y, Layer);
@@ -3697,6 +3751,26 @@ begin
 {$else FPC}
     Scroll(Dx * 1.0, Dy * 1.0);
 {$endif FPC}
+end;
+
+procedure TCustomImage32.ScrollToCenter(X, Y: Integer);
+var
+  ViewportRect: TRect;
+begin
+  BeginUpdate;
+  try
+    ViewportRect := GetViewportRect;
+
+    OffsetHorz := ViewportRect.Width * 0.5 - X * Scale;
+    OffsetVert := ViewportRect.Height * 0.5 - Y * Scale;
+  finally
+    EndUpdate;
+  end;
+end;
+
+procedure TCustomImage32.ScrollToCenter;
+begin
+  ScrollToCenter(Bitmap.Width div 2, Bitmap.Height div 2);
 end;
 
 procedure TCustomImage32.SetBackgroundOptions(const Value: TBackgroundOptions);
@@ -4391,20 +4465,24 @@ begin
 end;
 
 procedure TCustomImgView32.PaintSizeGrip;
+var
+  SizeGripRect: TRect;
 begin
   if (Parent = nil) then
     Exit;
 
   if (GetScrollBarsVisible) then
   begin
+    SizeGripRect := GetSizeGripRect;
 {$IFNDEF PLATFORM_INDEPENDENT}
     if IsSizeGripVisible then
-      DoDrawSizeGrip(GetSizeGripRect)
+      DoDrawSizeGrip(SizeGripRect)
     else
 {$ENDIF}
+    if (not SizeGripRect.IsEmpty) then
     begin
       Canvas.Brush.Color := clBtnFace;
-      Canvas.FillRect(GetSizeGripRect);
+      Canvas.FillRect(SizeGripRect);
     end;
   end;
 end;
@@ -4450,17 +4528,13 @@ begin
     ScrollPos := Constrain(ScrollPos, 0, FVerScroll.Max - FVerScroll.PageSize);
 end;
 
-procedure TCustomImgView32.ScrollToCenter;
-begin
-  ScrollToCenter(Bitmap.Width div 2, Bitmap.Height div 2);
-end;
-
 procedure TCustomImgView32.ScrollToCenter(X, Y: Integer);
 begin
   BeginOffset;
   try
-    OffsetHorz := FViewportSize.cx * 0.5 - X * Scale;
-    OffsetVert := FViewportSize.cy * 0.5 - Y * Scale;
+
+    inherited;
+
   finally
     EndOffset;
   end;
