@@ -1,4 +1,4 @@
-unit GR32_PolygonsAggLite;
+unit GR32_Polygons.AggLite;
 
 (* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1 or LGPL 2.1 with linking exception
@@ -1766,17 +1766,21 @@ var
 procedure RegisterBindings;
 begin
   FillSpanRegistry := NewRegistry('GR32_PolygonsAggLite bindings');
-  FillSpanRegistry.RegisterBinding(@@FILLSPAN);
+  FillSpanRegistry.RegisterBinding(@@FILLSPAN, 'FILLSPAN');
 
   // pure pascal
-  FillSpanRegistry.Add(@@FILLSPAN, @FILLSPAN_Pas, [isPascal]);
+  FillSpanRegistry[@@FILLSPAN].Add(@FILLSPAN_Pas, [isPascal]).Name := 'FILLSPAN_Pas';
+
+{$if defined(TARGET_x86)} // ASM & SSE2 implementations appears to be broken on x64. Fails with AV.
 
 {$IFNDEF PUREPASCAL}
-  FillSpanRegistry.Add(@@FILLSPAN, @FILLSPAN_ASM, [isAssembler]);
+  FillSpanRegistry[@@FILLSPAN].Add(@FILLSPAN_ASM, [isAssembler]).Name := 'FILLSPAN_ASM';
 {$IFNDEF OMIT_SSE2}
-  FillSpanRegistry.Add(@@FILLSPAN, @FILLSPAN_SSE2, [isSSE2]);
+  FillSpanRegistry[@@FILLSPAN].Add(@FILLSPAN_SSE2, [isSSE2]).Name := 'FILLSPAN_SSE2';
 {$ENDIF}
 {$ENDIF}
+
+{$ifend}
 
   FillSpanRegistry.RebindAll;
 end;
